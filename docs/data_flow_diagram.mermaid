@@ -1,0 +1,46 @@
+graph TB
+    subgraph "ДЖЕРЕЛА ДАНИХ (MASTER)"
+        US[USER SERVICE<br/>Users - Master Data]
+        PS[PRODUCT SERVICE<br/>Products - Master Data<br/>Categories - Master Data]
+        OS[ORDER SERVICE<br/>Orders - Master Data]
+        CS[CART SERVICE<br/>Carts - Master Data]
+        PAS[PAYMENT SERVICE<br/>Payments - Master Data]
+    end
+
+    subgraph "ДУБЛЮВАННЯ ДАНИХ"
+        subgraph "Order Service Cache"
+            OUC[OrderUserCache<br/>User Info Copy]
+            OPC[OrderProductCache<br/>Product Info Copy]
+        end
+        
+        subgraph "Cart Service Cache"
+            CPC[CartProductCache<br/>Product Info Copy]
+        end
+        
+        subgraph "Historical Data"
+            OI[OrderItems<br/>Product Snapshot<br/>at Order Time]
+        end
+    end
+
+    US -->|UserUpdated Event| OUC
+    PS -->|ProductUpdated Event| OPC
+    PS -->|ProductUpdated Event| CPC
+    PS -->|Current Price/Stock| OI
+
+    CS -.->|Get Current Stock| PS
+    CS -.->|Validate User| US
+    OS -.->|Get User Details| US
+    PAS -.->|Get Order Info| OS
+
+    PS ==>|ProductPriceChanged| OPC
+    PS ==>|ProductPriceChanged| CPC
+    US ==>|UserProfileUpdated| OUC
+    OS ==>|OrderStatusChanged| PAS
+
+    subgraph "ТИПИ СИНХРОНІЗАЦІЇ"
+        E1[REAL-TIME<br/>Critical Updates<br/>Events via Message Bus]
+        E2[SCHEDULED<br/>Periodic Sync<br/>Background Jobs]
+        E3[ON-DEMAND<br/>API Calls<br/>When Needed]
+    end
+
+    classDef default fill:#ffffff,stroke:#334155,stroke-width:1px,color:#0f172a;

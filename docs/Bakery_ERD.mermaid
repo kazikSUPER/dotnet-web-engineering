@@ -1,0 +1,112 @@
+erDiagram
+    Countries ||--o{ Distributors : "hosts"
+    Countries ||--o{ Ingredients : "origin"
+    Countries ||--o{ Customers : "citizenship"
+
+    Distributors ||--o{ Ingredients : "supplies"
+    Categories ||--o{ Products : "classifies"
+    Products ||--|{ ProductsIngredients : "contains"
+    Ingredients ||--|{ ProductsIngredients : "used_in"
+
+    Countries {
+        int Id PK
+        varchar Name UK
+    }
+
+    Categories {
+        int Id PK
+        varchar Name UK
+        varchar Description
+        boolean IsActive
+    }
+
+    Products {
+        int Id PK
+        varchar Name UK
+        varchar Description
+        text Recipe
+        decimal Price
+        int CategoryId FK
+        int StockQuantity
+        boolean IsActive
+    }
+
+    Distributors {
+        int Id PK
+        varchar Name UK
+        varchar AddressText
+        varchar Summary
+        int CountryId FK
+    }
+
+    Ingredients {
+        int Id PK
+        varchar Name
+        varchar Description
+        int OriginCountryId FK
+        int DistributorId FK
+    }
+
+    ProductsIngredients {
+        int ProductId PK,FK
+        int IngredientId PK,FK
+        decimal AmountGram
+    }
+
+    Customers ||--o{ Feedbacks : "writes"
+    Products ||--o{ Feedbacks : "receives"
+
+    Customers {
+        int Id PK
+        varchar FirstName
+        varchar LastName
+        char Gender
+        int Age
+        char PhoneNumber
+        int CountryId FK
+    }
+
+    Feedbacks {
+        int Id PK
+        varchar Description
+        decimal Rate
+        int ProductId FK
+        int CustomerId FK
+        timestamp CreatedAt
+    }
+
+    Orders ||--|{ OrderItems : "includes"
+
+    Orders {
+        int Id PK
+        varchar OrderNumber UK
+        int CustomerId
+        varchar Status
+        decimal TotalAmount
+        timestamp CreatedAt
+        timestamp UpdatedAt
+    }
+
+    OrderItems {
+        int Id PK
+        int OrderId FK
+        int ProductId
+        varchar ProductName
+        decimal UnitPrice
+        int Quantity
+        decimal TotalPrice
+    }
+
+    OrderCustomerCache {
+        int CustomerId PK
+        varchar CustomerName
+        char PhoneNumber
+        timestamp LastSynced
+    }
+
+    OrderProductCache {
+        int ProductId PK
+        varchar ProductName
+        decimal CurrentPrice
+        timestamp LastSynced
+    }

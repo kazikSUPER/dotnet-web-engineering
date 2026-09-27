@@ -1,0 +1,54 @@
+graph TB
+    subgraph "USER SERVICE DB"
+        U1[Users<br/>├ Id PK<br/>├ Email<br/>├ FirstName<br/>├ LastName<br/>├ Phone<br/>└ IsActive]
+        U2[UserAddresses<br/>├ Id PK<br/>├ UserId FK<br/>├ AddressLine1<br/>├ City<br/>├ PostalCode<br/>└ IsDefault]
+        U1 --> U2
+    end
+
+    subgraph "PRODUCT SERVICE DB"
+        P1[Categories<br/>├ Id PK<br/>├ Name<br/>├ Description<br/>├ ParentCategoryId<br/>└ IsActive]
+        P2[Products<br/>├ Id PK<br/>├ Name<br/>├ SKU<br/>├ Price<br/>├ CategoryId FK<br/>├ StockQuantity<br/>└ IsActive]
+        P3[ProductImages<br/>├ Id PK<br/>├ ProductId FK<br/>├ ImageUrl<br/>├ IsPrimary<br/>└ SortOrder]
+        P1 --> P2
+        P2 --> P3
+    end
+
+    subgraph "ORDER SERVICE DB"
+        O1[Orders<br/>├ Id PK<br/>├ UserId ref<br/>├ OrderNumber<br/>├ Status<br/>├ TotalAmount<br/>└ CreatedAt]
+        O2[OrderItems<br/>├ Id PK<br/>├ OrderId FK<br/>├ ProductId ref<br/>├ ProductName dup<br/>├ ProductSKU dup<br/>├ UnitPrice dup<br/>└ Quantity]
+        O3[OrderUserCache<br/>КЕША<br/>├ UserId PK<br/>├ FirstName dup<br/>├ LastName dup<br/>├ Email dup<br/>└ LastSynced]
+        O4[OrderProductCache<br/>КЕША<br/>├ ProductId PK<br/>├ ProductName dup<br/>├ Price dup<br/>├ SKU dup<br/>└ LastSynced]
+        O1 --> O2
+    end
+
+    subgraph "CART SERVICE DB"
+        C1[Carts<br/>├ Id PK<br/>├ UserId ref<br/>├ CreatedAt<br/>└ UpdatedAt]
+        C2[CartItems<br/>├ Id PK<br/>├ CartId FK<br/>├ ProductId ref<br/>├ Quantity<br/>└ AddedAt]
+        C3[CartProductCache<br/>КЕША<br/>├ ProductId PK<br/>├ ProductName dup<br/>├ Price dup<br/>├ ImageUrl dup<br/>├ IsAvailable dup<br/>└ LastSynced]
+        C1 --> C2
+    end
+
+    subgraph "PAYMENT SERVICE DB"
+        PA1[Payments<br/>├ Id PK<br/>├ OrderId ref<br/>├ UserId ref<br/>├ Amount<br/>├ Currency<br/>├ Status<br/>└ TransactionId]
+        PA2[PaymentMethods<br/>├ Id PK<br/>├ UserId ref<br/>├ Type<br/>├ MaskedCardNumber<br/>├ ExpiryDate<br/>└ IsDefault]
+    end
+
+    U1 -.->|FirstName, LastName, Email| O3
+    U1 -.->|user info display| C3
+    P2 -.->|Name, Price, SKU| O4
+    P2 -.->|Name, Price, ImageUrl| C3
+    P2 -.->|історичні дані| O2
+
+    O1 -.->|UserId reference| U1
+    O2 -.->|ProductId reference| P2
+    C1 -.->|UserId reference| U1
+    C2 -.->|ProductId reference| P2
+    PA1 -.->|OrderId reference| O1
+    PA1 -.->|UserId reference| U1
+    PA2 -.->|UserId reference| U1
+
+    P2 -.->|ProductUpdated Event| O4
+    P2 -.->|ProductUpdated Event| C3
+    U1 -.->|UserUpdated Event| O3
+
+    classDef default fill:#ffffff,stroke:#334155,stroke-width:1px,color:#0f172a;

@@ -1,0 +1,78 @@
+graph TB
+    subgraph "CLIENT LAYER"
+        WEB[Web Application]
+        MOBILE[Mobile App]
+        API_GW[API Gateway]
+        WEB --> API_GW
+        MOBILE --> API_GW
+    end
+
+    subgraph "MESSAGE BUS"
+        MSG[Event Bus<br/>UserUpdated<br/>ProductUpdated<br/>OrderCreated<br/>PaymentProcessed]
+    end
+
+    subgraph "USER MICROSERVICE"
+        US_API[User API]
+        US_BIZ[User Business Logic]
+        US_DB[(User Database<br/>═══════<br/>Users<br/>UserAddresses<br/>UserPreferences)]
+        US_API --> US_BIZ --> US_DB
+    end
+
+    subgraph "PRODUCT MICROSERVICE"
+        PS_API[Product API]
+        PS_BIZ[Product Business Logic]
+        PS_DB[(Product Database<br/>═══════<br/>Categories<br/>Products<br/>ProductImages<br/>Inventory)]
+        PS_API --> PS_BIZ --> PS_DB
+    end
+
+    subgraph "ORDER MICROSERVICE"
+        OS_API[Order API]
+        OS_BIZ[Order Business Logic]
+        OS_DB[(Order Database<br/>═══════<br/>Orders<br/>OrderItems<br/>OrderUserCache<br/>OrderProductCache)]
+        OS_API --> OS_BIZ --> OS_DB
+    end
+
+    subgraph "CART MICROSERVICE"
+        CS_API[Cart API]
+        CS_BIZ[Cart Business Logic]
+        CS_DB[(Cart Database<br/>═══════<br/>Carts<br/>CartItems<br/>CartProductCache)]
+        CS_API --> CS_BIZ --> CS_DB
+    end
+
+    subgraph "PAYMENT MICROSERVICE"
+        PAS_API[Payment API]
+        PAS_BIZ[Payment Business Logic]
+        PAS_DB[(Payment Database<br/>═══════<br/>Payments<br/>PaymentMethods<br/>Transactions)]
+        PAS_API --> PAS_BIZ --> PAS_DB
+    end
+
+    API_GW --> US_API
+    API_GW --> PS_API
+    API_GW --> OS_API
+    API_GW --> CS_API
+    API_GW --> PAS_API
+
+    US_BIZ <--> MSG
+    PS_BIZ <--> MSG
+    OS_BIZ <--> MSG
+    CS_BIZ <--> MSG
+    PAS_BIZ <--> MSG
+
+    OS_API -.->|Get User Info| US_API
+    CS_API -.->|Get Product Info| PS_API
+    CS_API -.->|Validate User| US_API
+    PAS_API -.->|Get Order Info| OS_API
+
+    US_DB -.->|User Data| OS_DB
+    PS_DB -.->|Product Data| OS_DB
+    PS_DB -.->|Product Data| CS_DB
+
+    subgraph "LEGEND"
+        L1[Master Data - Source of Truth]
+        L2[Cached Data - Replicated]
+        L3[═══ Separate Databases]
+        L4[---> API Calls]
+        L5[<--> Events]
+    end
+
+    classDef default fill:#ffffff,stroke:#334155,stroke-width:1px,color:#0f172a;
