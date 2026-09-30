@@ -218,3 +218,80 @@ db/
    # Ідемпотентне наповнення тестовими відгуками через upsert (безпечний повторний запуск)
    mongosh BakeryReviewsDB db/p3/seed.js
    ```
+---
+
+## 5. Архітектура сервісу (Лаб. 02) та запуск через .NET Aspire
+
+У Лабораторній роботі №02 реалізовано мікросервіс `Bakery` за тришаровою архітектурою:
+- **`Bakery.Domain`**: чисті доменні моделі (`Customer`, `Order`, `OrderItem`, `Payment`), інтерфейс `IGenericRepository<T>` та доменні винятки (`NotFoundException`, `BusinessConflictException`, `ValidationException`).
+- **`Bakery.Dal`**: доступ до даних.
+  - `CustomerRepository` на **чистому ADO.NET** (`SqlConnection`, `SqlCommand`, `SqlDataReader`).
+  - Узагальнений базовий клас `BaseDapperRepository<T>` для швидкого CRUD на Dapper.
+  - `OrderRepository` та `PaymentRepository` на Dapper (multi-mapping, виклики процедур).
+  - `UnitOfWork` з підтримкою транзакцій (`BeginTransactionAsync`, `CommitAsync`, `RollbackAsync`, `DisposeAsync`).
+- **`Bakery.Bll`**: бізнес-логіка, валідація DataAnnotations, AutoMapper профілі, транзакційне створення замовлень зі знімком цін.
+- **`Bakery.Api`**: тонкі контролери з REST-контрактами (`CreatedAtAction` 201, `NoContent` 204, `CancellationToken`) та централізована обробка винятків у форматі `ProblemDetails` (404, 409, 400, 500).
+- **`Platform.AppHost`**: оркестратор .NET Aspire для локального запуску бекенду та контейнера бази даних.
+
+### Запуск через .NET Aspire:
+```bash
+# Запуск усієї платформи (API + SQL Server) через Aspire Orchestrator
+dotnet run --project Platform.AppHost/Platform.AppHost.csproj
+```
+
+### Запуск API окремо:
+```bash
+dotnet run --project Services/Bakery/Bakery.Api/Bakery.Api.csproj
+```
+Swagger UI буде доступний за адресою: `https://localhost:7083/swagger` (або `http://localhost:5214/swagger`).
+
+### Приклади запитів (cURL / HTTP):
+
+1. **Створення нового клієнта:**
+```bash
+curl -X POST https://localhost:7083/api/v1/customers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "firstName": "Оксана",
+    "lastName": "Бондар",
+    "email": "oksana.bondar@example.com",
+    "phoneNumber": "0981122334",
+    "gender": "F",
+    "age": 26
+  }'
+```
+
+2. **Оформлення замовлення (транзакційне зі знімком цін):**
+```bash
+curl -X POST https://localhost:7083/api/v1/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customerId": 1,
+    "items": [
+      { "productId": 1, "quantity": 2 },
+      { "productId": 3, "quantity": 1 }
+    ],
+    "notes": "Прохання упакувати в еко-пакет"
+  }'
+```
+
+3. **Оплата замовлення (1:1 відношення):**
+```bash
+curl -X POST https://localhost:7083/api/v1/payments \
+  -H "Content-Type: application/json" \
+  -d '{
+    "orderId": 1,
+    "paymentMethod": "ApplePay",
+    "amount": 280.00
+  }'
+```
+
+4. **Оновлення статусу замовлення (перевірка бізнес-правил):**
+```bash
+curl -X PATCH https://localhost:7083/api/v1/orders/1/status \
+  -H "Content-Type: application/json" \
+  -d '{
+    "newStatus": "Baking",
+    "updatedBy": "ChefBaker"
+  }'
+```

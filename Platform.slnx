@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/Services/" />
+  <Folder Name="/Services/Bakery/">
+    <Project Path="Services/Bakery/Bakery.Api/Bakery.Api.csproj" />
+    <Project Path="Services/Bakery/Bakery.Bll/Bakery.Bll.csproj" />
+    <Project Path="Services/Bakery/Bakery.Dal/Bakery.Dal.csproj" />
+    <Project Path="Services/Bakery/Bakery.Domain/Bakery.Domain.csproj" />
+  </Folder>
+  <Project Path="Platform.AppHost/Platform.AppHost.csproj" />
+</Solution>
