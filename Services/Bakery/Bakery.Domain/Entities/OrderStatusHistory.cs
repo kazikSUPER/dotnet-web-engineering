@@ -1,4 +1,4 @@
-namespace Bakery.DAL.Entities;
+namespace Bakery.Domain.Entities;
 
 public class OrderStatusHistory
 {

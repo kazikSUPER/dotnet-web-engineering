@@ -7,6 +7,8 @@ public interface IUnitOfWork : IAsyncDisposable, IDisposable
     ICustomerRepository Customers { get; }
     IOrderRepository Orders { get; }
     IPaymentRepository Payments { get; }
+    IProductRepository Products { get; }
+    IOrderStatusHistoryRepository StatusHistories { get; }
 
     Task<IDbTransaction> BeginTransactionAsync(IsolationLevel isolationLevel = IsolationLevel.ReadCommitted, CancellationToken ct = default);
     Task CommitAsync(CancellationToken ct = default);

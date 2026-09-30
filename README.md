@@ -222,22 +222,40 @@ db/
 
 ## 5. Архітектура сервісу (Лаб. 02) та запуск через .NET Aspire
 
-У Лабораторній роботі №02 реалізовано мікросервіс `Bakery` за тришаровою архітектурою:
-- **`Bakery.Domain`**: чисті доменні моделі (`Customer`, `Order`, `OrderItem`, `Payment`), інтерфейс `IGenericRepository<T>` та доменні винятки (`NotFoundException`, `BusinessConflictException`, `ValidationException`).
+У Лабораторній роботі №02 реалізовано мікросервіс `Bakery` за чистою тришаровою архітектурою:
+- **`Bakery.Domain`**: чисті доменні моделі (`Customer`, `Order`, `OrderItem`, `Payment`, `Product`, `OrderStatusHistory`), інтерфейс `IGenericRepository<T>` та доменні винятки (`NotFoundException`, `BusinessConflictException`, `ValidationException`).
 - **`Bakery.Dal`**: доступ до даних.
-  - `CustomerRepository` на **чистому ADO.NET** (`SqlConnection`, `SqlCommand`, `SqlDataReader`).
+  - `CustomerRepository` на **чистому ADO.NET** (`SqlConnection`, `SqlCommand`, `SqlDataReader`) свідомо без наслідування `IGenericRepository`.
   - Узагальнений базовий клас `BaseDapperRepository<T>` для швидкого CRUD на Dapper.
-  - `OrderRepository` та `PaymentRepository` на Dapper (multi-mapping, виклики процедур).
-  - `UnitOfWork` з підтримкою транзакцій (`BeginTransactionAsync`, `CommitAsync`, `RollbackAsync`, `DisposeAsync`).
-- **`Bakery.Bll`**: бізнес-логіка, валідація DataAnnotations, AutoMapper профілі, транзакційне створення замовлень зі знімком цін.
+  - `OrderRepository`, `PaymentRepository`, `ProductRepository`, `OrderStatusHistoryRepository` на Dapper (multi-mapping, виклики збережуваних процедур).
+  - `UnitOfWork` з підтримкою транзакцій (`BeginTransactionAsync`, `CommitAsync`, `RollbackAsync`, `DisposeAsync`) для координації змін між щонайменше 2 репозиторіями (`Customers`, `Orders`, `Products`, `StatusHistories`).
+- **`Bakery.Bll`**: бізнес-логіка, валідація DataAnnotations, AutoMapper профілі, транзакційне створення замовлень зі знімком цін із бази даних (`_uow.Products`).
 - **`Bakery.Api`**: тонкі контролери з REST-контрактами (`CreatedAtAction` 201, `NoContent` 204, `CancellationToken`) та централізована обробка винятків у форматі `ProblemDetails` (404, 409, 400, 500).
 - **`Platform.AppHost`**: оркестратор .NET Aspire для локального запуску бекенду та контейнера бази даних.
+
+```mermaid
+graph TD
+    AppHost["Platform.AppHost (.NET Aspire Orchestration)"]
+    API["Bakery.Api (REST Controllers, ProblemDetails, Swagger)"]
+    BLL["Bakery.Bll (OrderService, CustomerService, PaymentService)"]
+    DAL["Bakery.Dal (UnitOfWork, Dapper & ADO.NET Repositories)"]
+    Domain["Bakery.Domain (Entities & Domain Exceptions)"]
+    DB[("SQL Server (BakeryOrdersDB)")]
+
+    AppHost -->|Оркеструє| API
+    AppHost -->|Підключає ресурс БД| DB
+    API -->|DI| BLL
+    BLL -->|DI & Transactions| DAL
+    DAL -->|Моделі| Domain
+    DAL -->|ADO.NET & Dapper| DB
+```
 
 ### Запуск через .NET Aspire:
 ```bash
 # Запуск усієї платформи (API + SQL Server) через Aspire Orchestrator
 dotnet run --project Platform.AppHost/Platform.AppHost.csproj
 ```
+Під час запуску Aspire автоматично відкриває **Aspire Dashboard** (`http://localhost:18888`), де доступні структуровані логи, трасування запитів (OpenTelemetry Tracing) та графіки продуктивності мікросервісу.
 
 ### Запуск API окремо:
 ```bash
@@ -245,9 +263,11 @@ dotnet run --project Services/Bakery/Bakery.Api/Bakery.Api.csproj
 ```
 Swagger UI буде доступний за адресою: `https://localhost:7083/swagger` (або `http://localhost:5214/swagger`).
 
+---
+
 ### Приклади запитів (cURL / HTTP):
 
-1. **Створення нового клієнта:**
+1. **Створення нового клієнта (201 Created):**
 ```bash
 curl -X POST https://localhost:7083/api/v1/customers \
   -H "Content-Type: application/json" \
@@ -261,7 +281,12 @@ curl -X POST https://localhost:7083/api/v1/customers \
   }'
 ```
 
-2. **Оформлення замовлення (транзакційне зі знімком цін):**
+2. **Отримання списку клієнтів (200 OK):**
+```bash
+curl -X GET https://localhost:7083/api/v1/customers
+```
+
+3. **Оформлення замовлення (транзакційне зі знімком цін з БД):**
 ```bash
 curl -X POST https://localhost:7083/api/v1/orders \
   -H "Content-Type: application/json" \
@@ -275,7 +300,12 @@ curl -X POST https://localhost:7083/api/v1/orders \
   }'
 ```
 
-3. **Оплата замовлення (1:1 відношення):**
+4. **Отримання замовлення з деталями та товарними позиціями (200 OK):**
+```bash
+curl -X GET https://localhost:7083/api/v1/orders/1
+```
+
+5. **Оплата замовлення (зв'язок 1:1, 201 Created):**
 ```bash
 curl -X POST https://localhost:7083/api/v1/payments \
   -H "Content-Type: application/json" \
@@ -286,7 +316,7 @@ curl -X POST https://localhost:7083/api/v1/payments \
   }'
 ```
 
-4. **Оновлення статусу замовлення (перевірка бізнес-правил):**
+6. **Оновлення статусу замовлення (перевірка бізнес-правил State Machine):**
 ```bash
 curl -X PATCH https://localhost:7083/api/v1/orders/1/status \
   -H "Content-Type: application/json" \
@@ -294,4 +324,9 @@ curl -X PATCH https://localhost:7083/api/v1/orders/1/status \
     "newStatus": "Baking",
     "updatedBy": "ChefBaker"
   }'
+```
+
+7. **Демонстрація обробки помилок ProblemDetails (404 Not Found):**
+```bash
+curl -X GET https://localhost:7083/api/v1/orders/99999
 ```

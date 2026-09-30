@@ -15,6 +15,8 @@ public class UnitOfWork : IUnitOfWork
     private ICustomerRepository? _customers;
     private IOrderRepository? _orders;
     private IPaymentRepository? _payments;
+    private IProductRepository? _products;
+    private IOrderStatusHistoryRepository? _statusHistories;
 
     public UnitOfWork(IDbConnectionFactory connectionFactory)
     {
@@ -35,6 +37,12 @@ public class UnitOfWork : IUnitOfWork
     public IPaymentRepository Payments => 
         _payments ??= new PaymentRepository(_connectionFactory, _connection, _transaction);
 
+    public IProductRepository Products => 
+        _products ??= new ProductRepository(_connectionFactory, _connection, _transaction);
+
+    public IOrderStatusHistoryRepository StatusHistories => 
+        _statusHistories ??= new OrderStatusHistoryRepository(_connectionFactory, _connection, _transaction);
+
     public Task<IDbTransaction> BeginTransactionAsync(IsolationLevel isolationLevel = IsolationLevel.ReadCommitted, CancellationToken ct = default)
     {
         if (_transaction != null)
@@ -48,6 +56,8 @@ public class UnitOfWork : IUnitOfWork
         _customers = new CustomerRepository(_connection, _transaction);
         _orders = new OrderRepository(_connectionFactory, _connection, _transaction);
         _payments = new PaymentRepository(_connectionFactory, _connection, _transaction);
+        _products = new ProductRepository(_connectionFactory, _connection, _transaction);
+        _statusHistories = new OrderStatusHistoryRepository(_connectionFactory, _connection, _transaction);
 
         return Task.FromResult<IDbTransaction>(_transaction);
     }

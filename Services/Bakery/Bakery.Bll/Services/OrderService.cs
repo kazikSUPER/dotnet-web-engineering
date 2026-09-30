@@ -53,22 +53,22 @@ public class OrderService : IOrderService
     /// </summary>
     public async Task<OrderResponseDto> CreateOrderAsync(CreateOrderDto dto, CancellationToken ct = default)
     {
-        // 1. Валідація існування клієнта
-        var customer = await _uow.Customers.GetByIdAsync(dto.CustomerId, ct);
-        if (customer == null)
-        {
-            throw new NotFoundException(nameof(Customer), dto.CustomerId);
-        }
-
         if (dto.Items == null || dto.Items.Count == 0)
         {
             throw new ValidationException(nameof(dto.Items), "Замовлення повинно містити щонайменше одну товарну позицію.");
         }
 
-        // 2. Початок транзакції Unit of Work
+        // Початок транзакції Unit of Work
         await _uow.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, ct);
         try
         {
+            // 1. Валідація та читання клієнта всередині транзакції (_uow.Customers)
+            var customer = await _uow.Customers.GetByIdAsync(dto.CustomerId, ct);
+            if (customer == null)
+            {
+                throw new NotFoundException(nameof(Customer), dto.CustomerId);
+            }
+
             var orderNumber = $"ORD-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString()[..6].ToUpper()}";
             var order = new Order
             {
@@ -80,16 +80,30 @@ public class OrderService : IOrderService
                 CreatedBy = customer.FullName
             };
 
-            // Додаємо замовлення для отримання Id
+            // Додаємо замовлення для отримання Id (_uow.Orders)
             var orderId = await _uow.Orders.AddAsync(order, ct);
             decimal totalAmount = 0m;
 
-            // 3. Формування товарних позицій зі знімком цін
+            // 2. Отримання товарів з БД каталогу (_uow.Products) та збереження позицій зі знімком цін
             foreach (var itemDto in dto.Items)
             {
-                if (!CatalogPriceSnapshot.TryGetValue(itemDto.ProductId, out var productInfo))
+                var product = await _uow.Products.GetByIdAsync(itemDto.ProductId, ct);
+                string productName;
+                decimal productPrice;
+
+                if (product != null)
                 {
-                    throw new NotFoundException($"Товар з кодом ({itemDto.ProductId}) не знайдено в каталозі пекарні.");
+                    productName = product.Name;
+                    productPrice = product.Price;
+                }
+                else if (CatalogPriceSnapshot.TryGetValue(itemDto.ProductId, out var fallbackProduct))
+                {
+                    productName = fallbackProduct.Name;
+                    productPrice = fallbackProduct.Price;
+                }
+                else
+                {
+                    throw new NotFoundException($"Товар з кодом ({itemDto.ProductId}) не знайдено в каталозі товарів БД.");
                 }
 
                 if (itemDto.Quantity <= 0)
@@ -101,8 +115,8 @@ public class OrderService : IOrderService
                 {
                     OrderId = orderId,
                     ProductId = itemDto.ProductId,
-                    ProductName = productInfo.Name,    // Знімок назви
-                    UnitPrice = productInfo.Price,     // Знімок ціни
+                    ProductName = productName,    // Знімок назви з БД каталогу
+                    UnitPrice = productPrice,     // Знімок ціни з БД каталогу
                     Quantity = itemDto.Quantity
                 };
 
@@ -111,9 +125,19 @@ public class OrderService : IOrderService
                 order.Items.Add(orderItem);
             }
 
-            // 4. Оновлення загальної суми замовлення
+            // 3. Оновлення загальної суми замовлення
             order.TotalAmount = totalAmount;
             await _uow.Orders.UpdateAsync(order, ct);
+
+            // 4. Фіксація початкового статусу в історії статусів (_uow.StatusHistories) у тій самій транзакції
+            var initialHistory = new OrderStatusHistory
+            {
+                OrderId = orderId,
+                Status = "Pending",
+                ChangedAt = DateTime.UtcNow,
+                Comment = "Замовлення створено (Pending)"
+            };
+            await _uow.StatusHistories.AddAsync(initialHistory, ct);
 
             // 5. Фіксація транзакції
             await _uow.CommitAsync(ct);
@@ -136,15 +160,35 @@ public class OrderService : IOrderService
             throw new NotFoundException(nameof(Order), id);
         }
 
+        await _uow.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, ct);
         try
         {
             // Виклик транзакційної збережуваної процедури зі строгими бізнес-правилами
-            return await _uow.Orders.UpdateStatusViaProcedureAsync(id, dto.NewStatus, dto.UpdatedBy, ct);
+            var updated = await _uow.Orders.UpdateStatusViaProcedureAsync(id, dto.NewStatus, dto.UpdatedBy, ct);
+            if (updated)
+            {
+                await _uow.StatusHistories.AddAsync(new OrderStatusHistory
+                {
+                    OrderId = id,
+                    Status = dto.NewStatus,
+                    ChangedAt = DateTime.UtcNow,
+                    Comment = $"Статус змінено на {dto.NewStatus} користувачем {dto.UpdatedBy}"
+                }, ct);
+            }
+
+            await _uow.CommitAsync(ct);
+            return updated;
         }
         catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number >= 50000)
         {
+            await _uow.RollbackAsync(ct);
             // Керована помилка зі збережуваної процедури (THROW) мапиться у доменний виняток
             throw new BusinessConflictException(ex.Message, ex);
+        }
+        catch
+        {
+            await _uow.RollbackAsync(ct);
+            throw;
         }
     }
 
