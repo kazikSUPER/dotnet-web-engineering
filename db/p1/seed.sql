@@ -30,7 +30,26 @@ BEGIN
     VALUES (N'Богдан', N'Ткачук', 'bohdan.tkachuk@example.com', '0684445566', 'M', 41, 'Seeder');
 END
 
--- 2. Замовлення (перевірка за OrderNumber)
+-- 2. Локальна таблиця товарів (репліка каталогу для OrdersDB)
+IF NOT EXISTS (SELECT 1 FROM dbo.Products WHERE Id = 1)
+BEGIN
+    INSERT INTO dbo.Products (Id, Name, Price, Stock, CreatedBy)
+    VALUES (1, N'Круасан класичний масляний', 60.00, 50, 'Seeder');
+END
+
+IF NOT EXISTS (SELECT 1 FROM dbo.Products WHERE Id = 2)
+BEGIN
+    INSERT INTO dbo.Products (Id, Name, Price, Stock, CreatedBy)
+    VALUES (2, N'Багет традиційний французький', 40.00, 40, 'Seeder');
+END
+
+IF NOT EXISTS (SELECT 1 FROM dbo.Products WHERE Id = 3)
+BEGIN
+    INSERT INTO dbo.Products (Id, Name, Price, Stock, CreatedBy)
+    VALUES (3, N'Чізкейк Сан-Себастьян', 160.00, 20, 'Seeder');
+END
+
+-- 3. Замовлення (перевірка за OrderNumber)
 DECLARE @Cust1Id INT = (SELECT Id FROM dbo.Customers WHERE Email = 'olena.koval@example.com');
 DECLARE @Cust2Id INT = (SELECT Id FROM dbo.Customers WHERE Email = 'taras.shevchuk@example.com');
 

@@ -6,6 +6,7 @@
 IF OBJECT_ID('dbo.ProductIngredients', 'U') IS NOT NULL DROP TABLE dbo.ProductIngredients;
 IF OBJECT_ID('dbo.Ingredients', 'U') IS NOT NULL DROP TABLE dbo.Ingredients;
 IF OBJECT_ID('dbo.Distributors', 'U') IS NOT NULL DROP TABLE dbo.Distributors;
+IF OBJECT_ID('dbo.ProductDetails', 'U') IS NOT NULL DROP TABLE dbo.ProductDetails;
 IF OBJECT_ID('dbo.Products', 'U') IS NOT NULL DROP TABLE dbo.Products;
 IF OBJECT_ID('dbo.Categories', 'U') IS NOT NULL DROP TABLE dbo.Categories;
 IF OBJECT_ID('dbo.Countries', 'U') IS NOT NULL DROP TABLE dbo.Countries;
@@ -48,6 +49,20 @@ CREATE TABLE dbo.Products (
         REFERENCES dbo.Categories(Id) ON DELETE CASCADE,
     CONSTRAINT CHK_Products_Price CHECK (Price > 0.00),
     CONSTRAINT CHK_Products_Weight CHECK (WeightGram > 0)
+);
+
+-- 4. Деталі товару та умови зберігання (ProductDetails)
+-- Зв'язок 1:1 з Products (FK ProductId є водночас PRIMARY KEY таблиці)
+CREATE TABLE dbo.ProductDetails (
+    ProductId INT PRIMARY KEY,
+    StorageTemperature NVARCHAR(50) NOT NULL DEFAULT '+15..+22 C',
+    ShelfLifeHours INT NOT NULL DEFAULT 48,
+    NutritionalInfo NVARCHAR(200) NULL,
+    CreatedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    
+    CONSTRAINT FK_ProductDetails_Products FOREIGN KEY (ProductId) 
+        REFERENCES dbo.Products(Id) ON DELETE CASCADE,
+    CONSTRAINT CHK_ProductDetails_ShelfLife CHECK (ShelfLifeHours > 0)
 );
 
 -- 4. Постачальники інгредієнтів (Distributors)

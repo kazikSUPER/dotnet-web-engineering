@@ -50,7 +50,24 @@ IF @CatDessert IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dbo.Products WHERE Sku 
     INSERT INTO dbo.Products (Name, Sku, Description, Price, WeightGram, CategoryId)
     VALUES (N'Чізкейк Сан-Себастьян', 'DS-003', N'Карамелізований баскський запечений чізкейк', 160.00, 180, @CatDessert);
 
--- 5. Інгредієнти
+-- 5. Деталі товарів (1:1 відношення з Products)
+DECLARE @Prod1Id INT = (SELECT Id FROM dbo.Products WHERE Sku = 'CR-001');
+DECLARE @Prod2Id INT = (SELECT Id FROM dbo.Products WHERE Sku = 'BR-002');
+DECLARE @Prod3Id INT = (SELECT Id FROM dbo.Products WHERE Sku = 'DS-003');
+
+IF @Prod1Id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dbo.ProductDetails WHERE ProductId = @Prod1Id)
+    INSERT INTO dbo.ProductDetails (ProductId, StorageTemperature, ShelfLifeHours, NutritionalInfo)
+    VALUES (@Prod1Id, '+18..+24 C', 36, N'Білки: 7.2г, Жири: 22.5г, Вуглеводи: 44.0г');
+
+IF @Prod2Id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dbo.ProductDetails WHERE ProductId = @Prod2Id)
+    INSERT INTO dbo.ProductDetails (ProductId, StorageTemperature, ShelfLifeHours, NutritionalInfo)
+    VALUES (@Prod2Id, '+18..+22 C', 24, N'Білки: 8.5г, Жири: 1.2г, Вуглеводи: 52.0г');
+
+IF @Prod3Id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dbo.ProductDetails WHERE ProductId = @Prod3Id)
+    INSERT INTO dbo.ProductDetails (ProductId, StorageTemperature, ShelfLifeHours, NutritionalInfo)
+    VALUES (@Prod3Id, '+2..+6 C', 72, N'Білки: 6.8г, Жири: 28.0г, Вуглеводи: 26.5г');
+
+-- 6. Інгредієнти
 DECLARE @DistrUa INT = (SELECT Id FROM dbo.Distributors WHERE TaxNumber = 'UA-38291044');
 DECLARE @DistrFr INT = (SELECT Id FROM dbo.Distributors WHERE TaxNumber = 'FR-99482103');
 

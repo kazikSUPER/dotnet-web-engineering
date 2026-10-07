@@ -7,6 +7,7 @@
 IF OBJECT_ID('dbo.Payments', 'U') IS NOT NULL DROP TABLE dbo.Payments;
 IF OBJECT_ID('dbo.OrderItems', 'U') IS NOT NULL DROP TABLE dbo.OrderItems;
 IF OBJECT_ID('dbo.Orders', 'U') IS NOT NULL DROP TABLE dbo.Orders;
+IF OBJECT_ID('dbo.Products', 'U') IS NOT NULL DROP TABLE dbo.Products;
 IF OBJECT_ID('dbo.Customers', 'U') IS NOT NULL DROP TABLE dbo.Customers;
 
 -- 1. Таблиця клієнтів (Customers)
@@ -35,7 +36,27 @@ CREATE TABLE dbo.Customers (
     CONSTRAINT CHK_Customers_Age CHECK (Age >= 0 AND Age <= 120)
 );
 
--- 2. Таблиця замовлень (Orders)
+-- 2. Локальна таблиця товарів пекарні (Products)
+-- Виступає локальною реплікою/довідником Каталогу для сервісу замовлень (eShop pattern)
+CREATE TABLE dbo.Products (
+    Id INT PRIMARY KEY,                    -- Той самий Id, що й у Каталозі (без крос-серверного FK)
+    Name NVARCHAR(100) NOT NULL,
+    Price DECIMAL(18, 2) NOT NULL,
+    Stock INT NOT NULL DEFAULT 0,
+    
+    -- Аудитні колонки
+    CreatedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    CreatedBy NVARCHAR(50) NOT NULL DEFAULT 'System',
+    UpdatedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    UpdatedBy NVARCHAR(50) NOT NULL DEFAULT 'System',
+    IsDeleted BIT NOT NULL DEFAULT 0,
+    RowVersion ROWVERSION NOT NULL,
+
+    CONSTRAINT CHK_Products_Price CHECK (Price > 0.00),
+    CONSTRAINT CHK_Products_Stock CHECK (Stock >= 0)
+);
+
+-- 3. Таблиця замовлень (Orders)
 -- Зв'язок 1:N з Customers (FK на боці багатьох)
 CREATE TABLE dbo.Orders (
     Id INT IDENTITY(1,1) PRIMARY KEY,
@@ -63,12 +84,12 @@ CREATE TABLE dbo.Orders (
     CONSTRAINT CHK_Orders_TotalAmount CHECK (TotalAmount >= 0.00)
 );
 
--- 3. Таблиця позицій замовлення (OrderItems)
--- Зв'язок M:N (проміжна таблиця з двома сутностями: Order та зовнішній Product)
+-- 4. Таблиця позицій замовлення (OrderItems)
+-- Зв'язок M:N між Orders та Products (проміжна таблиця з двома зовнішніми ключами)
 CREATE TABLE dbo.OrderItems (
     Id INT IDENTITY(1,1) PRIMARY KEY,
     OrderId INT NOT NULL,
-    ProductId INT NOT NULL,                -- Логічне посилання на Каталог (без міжсерверного FK)
+    ProductId INT NOT NULL,                -- Зовнішній ключ на локальну таблицю Products
     ProductName NVARCHAR(100) NOT NULL,    -- Знімок назви товару на момент покупки
     UnitPrice DECIMAL(18, 2) NOT NULL,     -- Знімок ціни товару на момент покупки
     Quantity INT NOT NULL DEFAULT 1,
@@ -83,6 +104,8 @@ CREATE TABLE dbo.OrderItems (
 
     CONSTRAINT FK_OrderItems_Orders FOREIGN KEY (OrderId) 
         REFERENCES dbo.Orders(Id) ON DELETE CASCADE,
+    CONSTRAINT FK_OrderItems_Products FOREIGN KEY (ProductId) 
+        REFERENCES dbo.Products(Id) ON DELETE NO ACTION,
     CONSTRAINT CHK_OrderItems_Quantity CHECK (Quantity > 0),
     CONSTRAINT CHK_OrderItems_UnitPrice CHECK (UnitPrice > 0.00)
 );

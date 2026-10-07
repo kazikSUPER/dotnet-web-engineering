@@ -40,10 +40,18 @@ BEGIN
             THROW 50001, N'Неможливо змінити статус замовлення, яке вже доставлено або скасовано.', 1;
         END
 
-        -- Правило: скасувати можна тільки замовлення до етапу випікання
-        IF @NewStatus = 'Cancelled' AND @CurrentStatus IN ('Baking', 'Ready')
+        -- Валідація допустимих переходів скінченного автомата (State Machine)
+        -- Перехід у 'Baking', 'Ready', 'Delivered' для неоплаченого замовлення заборонено
+        DECLARE @IsValidTransition BIT = 0;
+
+        IF @CurrentStatus = 'Pending' AND @NewStatus IN ('Paid', 'Cancelled') SET @IsValidTransition = 1;
+        ELSE IF @CurrentStatus = 'Paid' AND @NewStatus IN ('Baking', 'Cancelled') SET @IsValidTransition = 1;
+        ELSE IF @CurrentStatus = 'Baking' AND @NewStatus = 'Ready' SET @IsValidTransition = 1;
+        ELSE IF @CurrentStatus = 'Ready' AND @NewStatus = 'Delivered' SET @IsValidTransition = 1;
+
+        IF @IsValidTransition = 0
         BEGIN
-            THROW 50003, N'Неможливо скасувати замовлення, яке вже випікається або готове.', 1;
+            THROW 50003, N'Неприпустимий перехід статусу замовлення за бізнес-правилами життєвого циклу.', 1;
         END
 
         -- 3. Оновлення статусу

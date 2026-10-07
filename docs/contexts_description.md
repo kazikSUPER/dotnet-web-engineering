@@ -11,7 +11,8 @@
 - **Сутності:**
   - `Customer` (Клієнт): контактні дані, стать, вік, телефон.
   - `Order` (Замовлення): номер замовлення, статус (`Pending`, `Paid`, `Baking`, `Ready`, `Delivered`, `Cancelled`), загальна вартість. Зв'язок 1:N з `Customer`.
-  - `OrderItem` (Позиція замовлення): проміжна сутність M:N, містить `OrderId`, `ProductId` (посилання на Каталог), фіксацію знімка ціни (`UnitPrice`) та назви (`ProductName`), кількість та обчислювану вартість (`TotalPrice`).
+  - `Product` (Товар — локальна репліка довідника): зберігає `Id`, `Name`, `Price`, `Stock` для автономної валідації кошика без міжсервісних звернень (патерн Microsoft eShop).
+  - `OrderItem` (Позиція замовлення): проміжна сутність M:N з двома реальними FK (на `Orders` та `Products`), фіксація знімка ціни (`UnitPrice`) та назви (`ProductName`), кількість та обчислювана вартість (`TotalPrice`).
   - `Payment` (Оплата): зв'язок 1:1 з `Order` (PK таблиці `Payments` є водночас FK до `Orders.Id`), номер транзакції, платіжний метод.
 
 ---
@@ -22,6 +23,7 @@
 - **Сутності:**
   - `Category` (Категорія): хліб, круасани, десерти.
   - `Product` (Товар / Випічка): SKU, назва, опис, вага, актуальна ціна. Зв'язок 1:N з `Category`.
+  - `ProductDetails` (Деталі товару): зв'язок 1:1 з `Product` (PK є FK до `Product.Id`), температурний режим, термін придатності (години), харчова цінність (БЖУ).
   - `Ingredient` (Інгредієнт): сировина, калорійність, алергени.
   - `Distributor` (Постачальник): компанія-постачальник сировини.
   - `Country` (Країна походження).
@@ -45,5 +47,6 @@
 |---|---|---|---|---|
 | `UnitPrice` (Ціна товару) | `BakeryCatalogDB.Products` | `BakeryOrdersDB.OrderItems` | Фіксація фінансового звіту: зміна ціни в каталозі не повинна змінювати суму вже оформленого замовлення | **Знімок (Snapshot):** копіюється в момент створення замовлення в сервісному шарі |
 | `ProductName` (Назва товару) | `BakeryCatalogDB.Products` | `BakeryOrdersDB.OrderItems` | Автономність сервісу замовлень: чек та список позицій формуються без звернення до БД каталогу | **Знімок (Snapshot):** копіюється при оформленні чеку |
+| `Products.Name, Price` | `BakeryCatalogDB.Products` | `BakeryOrdersDB.Products` | Локальна копія довідника товарів для швидкого оформлення кошика та автономності | **Подієва узгодженість (Eventual Consistency):** подія `ProductCatalogUpdatedEvent` |
 | `ProductName` (Назва товару) | `BakeryCatalogDB.Products` | `BakeryReviewsDB.reviews` | Швидка видача списку відгуків для мобільного клієнта без Join з іншим сервісом | **Подієва узгодженість (Eventual Consistency):** публікація події `ProductRenamedEvent` через брокер повідомлень (Лаб. 8) |
 | `CustomerName` (Ім'я клієнта) | `BakeryOrdersDB.Customers` | `BakeryReviewsDB.reviews` | Відображення автора відгуку без звернення до бази клієнтів | **Подієва узгодженість (Eventual Consistency):** подія `CustomerProfileUpdatedEvent` |
