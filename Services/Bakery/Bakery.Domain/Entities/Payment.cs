@@ -1,16 +1,28 @@
+using Bakery.Domain.Exceptions;
+
 namespace Bakery.Domain.Entities;
 
 public class Payment
 {
-    public int OrderId { get; set; }
-    public int Id { get => OrderId; set => OrderId = value; }
-    public string TransactionNumber { get; set; } = string.Empty;
-    public string TransactionReference { get => TransactionNumber; set => TransactionNumber = value; }
-    public string PaymentMethod { get; set; } = "CreditCard";
-    public decimal Amount { get; set; }
-    public DateTime PaymentDate { get; set; } = DateTime.UtcNow;
-    public string Status { get; set; } = "Completed";
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-    public bool IsDeleted { get; set; }
-    public byte[]? RowVersion { get; set; }
+    private Payment() { }
+
+    public Payment(int orderId, string transactionNumber, string paymentMethod, decimal amount)
+    {
+        if (orderId <= 0 || string.IsNullOrWhiteSpace(transactionNumber) || amount <= 0) throw new DomainValidationException("Некоректні дані оплати.");
+        OrderId = orderId;
+        TransactionNumber = transactionNumber;
+        PaymentMethod = paymentMethod;
+        Amount = amount;
+        PaymentDate = DateTime.UtcNow;
+        Status = "Completed";
+    }
+
+    public int OrderId { get; private set; }
+    public string TransactionNumber { get; private set; } = string.Empty;
+    public string PaymentMethod { get; private set; } = string.Empty;
+    public decimal Amount { get; private set; }
+    public DateTime PaymentDate { get; private set; }
+    public string Status { get; private set; } = "Completed";
+    public byte[]? RowVersion { get; private set; }
+    public Order? Order { get; private set; }
 }

@@ -1,16 +1,28 @@
+using Bakery.Domain.Exceptions;
+
 namespace Bakery.Domain.Entities;
 
 public class OrderItem
 {
-    public int Id { get; set; }
-    public int OrderId { get; set; }
-    public int ProductId { get; set; } = 1;
-    public string ProductName { get; set; } = string.Empty;
-    public string ItemName { get => ProductName; set => ProductName = value; }
-    public decimal UnitPrice { get; set; }
-    public int Quantity { get; set; }
+    private OrderItem() { }
+
+    public OrderItem(int productId, string productName, decimal unitPrice, int quantity)
+    {
+        if (productId <= 0 || quantity <= 0 || unitPrice <= 0) throw new DomainValidationException("Некоректні дані позиції замовлення.");
+        ProductId = productId;
+        ProductName = productName;
+        UnitPrice = unitPrice;
+        Quantity = quantity;
+    }
+
+    public int Id { get; private set; }
+    public int OrderId { get; private set; }
+    public int ProductId { get; private set; }
+    public string ProductName { get; private set; } = string.Empty;
+    public decimal UnitPrice { get; private set; }
+    public int Quantity { get; private set; }
     public decimal TotalPrice => UnitPrice * Quantity;
-    public decimal Subtotal => TotalPrice;
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-    public bool IsDeleted { get; set; }
+    public DateTime CreatedAt { get; private set; } = DateTime.UtcNow;
+    public Order? Order { get; private set; }
+    public Product? Product { get; private set; }
 }
