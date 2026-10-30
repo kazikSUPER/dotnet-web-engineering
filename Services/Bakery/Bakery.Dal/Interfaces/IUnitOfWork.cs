@@ -1,16 +1,11 @@
-using System.Data;
-
 namespace Bakery.DAL.Interfaces;
 
-public interface IUnitOfWork : IAsyncDisposable, IDisposable
+public interface IUnitOfWork
 {
     ICustomerRepository Customers { get; }
     IOrderRepository Orders { get; }
     IPaymentRepository Payments { get; }
     IProductRepository Products { get; }
-    IOrderStatusHistoryRepository StatusHistories { get; }
-
-    Task<IDbTransaction> BeginTransactionAsync(IsolationLevel isolationLevel = IsolationLevel.ReadCommitted, CancellationToken ct = default);
-    Task CommitAsync(CancellationToken ct = default);
-    Task RollbackAsync(CancellationToken ct = default);
+    Task<int> SaveChangesAsync(CancellationToken ct = default);
+    Task<IDisposable> BeginTransactionAsync(CancellationToken ct = default);
 }
