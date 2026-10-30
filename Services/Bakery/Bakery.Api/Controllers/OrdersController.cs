@@ -1,4 +1,4 @@
-using Bakery.BLL.DTOs;
+using Bakery.BLL.DTOs.Orders;
 using Bakery.BLL.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
@@ -6,71 +6,36 @@ namespace Bakery.API.Controllers;
 
 [ApiController]
 [Route("api/v1/[controller]")]
-[Produces("application/json")]
-public class OrdersController : ControllerBase
+public class OrdersController(IOrderService service) : ControllerBase
 {
-    private readonly IOrderService _orderService;
-
-    public OrdersController(IOrderService orderService)
-    {
-        _orderService = orderService;
-    }
-
     [HttpGet("{id:int}")]
-    [ProducesResponseType(typeof(OrderResponseDto), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<OrderResponseDto>> GetById(int id, CancellationToken ct = default)
+    public async Task<ActionResult<OrderResponseDto>> GetById(int id, CancellationToken ct)
     {
-        var order = await _orderService.GetByIdAsync(id, ct);
-        if (order == null)
-        {
-            return NotFound(new ProblemDetails
-            {
-                Title = "Замовлення не знайдено",
-                Detail = $"Замовлення з Id {id} не знайдено.",
-                Status = StatusCodes.Status404NotFound
-            });
-        }
-        return Ok(order);
+        var result = await service.GetByIdAsync(id, ct);
+        return result is null ? NotFound() : Ok(result);
     }
 
     [HttpGet("customer/{customerId:int}")]
-    [ProducesResponseType(typeof(IReadOnlyList<OrderResponseDto>), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<IReadOnlyList<OrderResponseDto>>> GetByCustomer(int customerId, CancellationToken ct = default)
-    {
-        var orders = await _orderService.GetByCustomerIdAsync(customerId, ct);
-        return Ok(orders);
-    }
+    public async Task<ActionResult<PagedResponse<OrderResponseDto>>> GetByCustomer(int customerId, [FromQuery] OrderQuery query, CancellationToken ct) => Ok(await service.GetByCustomerIdAsync(customerId, query, ct));
 
     [HttpPost]
-    [ProducesResponseType(typeof(OrderResponseDto), StatusCodes.Status201Created)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<OrderResponseDto>> Create([FromBody] CreateOrderDto dto, CancellationToken ct = default)
+    public async Task<ActionResult<OrderResponseDto>> Create(CreateOrderRequest request, CancellationToken ct)
     {
-        var created = await _orderService.CreateOrderAsync(dto, ct);
-        return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
+        var result = await service.CreateAsync(request, ct);
+        return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
     }
 
     [HttpPatch("{id:int}/status")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<IActionResult> UpdateStatus(int id, [FromBody] UpdateOrderStatusDto dto, CancellationToken ct = default)
+    public async Task<IActionResult> UpdateStatus(int id, UpdateOrderStatusRequest request, CancellationToken ct)
     {
-        await _orderService.UpdateStatusAsync(id, dto, ct);
+        await service.UpdateStatusAsync(id, request, ct);
         return NoContent();
     }
 
     [HttpPost("{id:int}/cancel")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<IActionResult> Cancel(int id, CancellationToken ct = default)
+    public async Task<IActionResult> Cancel(int id, CancellationToken ct)
     {
-        await _orderService.CancelOrderAsync(id, ct);
+        await service.CancelAsync(id, ct);
         return NoContent();
     }
 }

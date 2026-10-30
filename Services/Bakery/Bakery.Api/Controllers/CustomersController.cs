@@ -1,4 +1,4 @@
-using Bakery.BLL.DTOs;
+using Bakery.BLL.DTOs.Customers;
 using Bakery.BLL.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
@@ -6,68 +6,36 @@ namespace Bakery.API.Controllers;
 
 [ApiController]
 [Route("api/v1/[controller]")]
-[Produces("application/json")]
-public class CustomersController : ControllerBase
+public class CustomersController(ICustomerService service) : ControllerBase
 {
-    private readonly ICustomerService _customerService;
-
-    public CustomersController(ICustomerService customerService)
-    {
-        _customerService = customerService;
-    }
-
     [HttpGet]
-    [ProducesResponseType(typeof(IReadOnlyList<CustomerDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<IReadOnlyList<CustomerDto>>> GetAll(CancellationToken ct = default)
-    {
-        var customers = await _customerService.GetAllAsync(ct);
-        return Ok(customers);
-    }
+    public async Task<ActionResult<IReadOnlyList<CustomerResponseDto>>> GetAll(CancellationToken ct) => Ok(await service.GetAllAsync(ct));
 
     [HttpGet("{id:int}")]
-    [ProducesResponseType(typeof(CustomerDto), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<CustomerDto>> GetById(int id, CancellationToken ct = default)
+    public async Task<ActionResult<CustomerResponseDto>> GetById(int id, CancellationToken ct)
     {
-        var customer = await _customerService.GetByIdAsync(id, ct);
-        if (customer == null)
-        {
-            return NotFound(new ProblemDetails
-            {
-                Title = "Клієнта не знайдено",
-                Detail = $"Клієнта з Id {id} не знайдено у системі.",
-                Status = StatusCodes.Status404NotFound
-            });
-        }
-        return Ok(customer);
+        var result = await service.GetByIdAsync(id, ct);
+        return result is null ? NotFound() : Ok(result);
     }
 
     [HttpPost]
-    [ProducesResponseType(typeof(CustomerDto), StatusCodes.Status201Created)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<ActionResult<CustomerDto>> Create([FromBody] CustomerCreateDto dto, CancellationToken ct = default)
+    public async Task<ActionResult<CustomerResponseDto>> Create(CreateCustomerRequest request, CancellationToken ct)
     {
-        var created = await _customerService.CreateAsync(dto, ct);
-        return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
+        var result = await service.CreateAsync(request, ct);
+        return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
     }
 
     [HttpPut("{id:int}")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> Update(int id, [FromBody] CustomerUpdateDto dto, CancellationToken ct = default)
+    public async Task<IActionResult> Update(int id, UpdateCustomerRequest request, CancellationToken ct)
     {
-        await _customerService.UpdateAsync(id, dto, ct);
+        await service.UpdateAsync(id, request, ct);
         return NoContent();
     }
 
     [HttpDelete("{id:int}")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> Delete(int id, CancellationToken ct = default)
+    public async Task<IActionResult> Delete(int id, CancellationToken ct)
     {
-        await _customerService.DeleteAsync(id, ct);
+        await service.DeleteAsync(id, ct);
         return NoContent();
     }
 }

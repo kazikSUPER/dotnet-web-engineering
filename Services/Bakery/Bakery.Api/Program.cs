@@ -1,51 +1,66 @@
-using AutoMapper;
 using Bakery.API.Middleware;
 using Bakery.BLL.Interfaces;
 using Bakery.BLL.Mapping;
 using Bakery.BLL.Services;
+using Bakery.BLL.Validators;
 using Bakery.DAL.Data;
 using Bakery.DAL.Interfaces;
+using FluentValidation;
+using FluentValidation.AspNetCore;
+using Microsoft.EntityFrameworkCore;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Конфігурація підключення до бази даних
-var connectionString = builder.Configuration.GetConnectionString("BakeryOrdersDB") 
-    ?? "Server=(localdb)\\mssqllocaldb;Database=BakeryOrdersDB;Trusted_Connection=True;MultipleActiveResultSets=true;TrustServerCertificate=True";
+builder.Host.UseSerilog((context, configuration) => configuration
+    .ReadFrom.Configuration(context.Configuration)
+    .Enrich.FromLogContext()
+    .Enrich.WithProperty("Application", "Bakery.Api"));
 
-// Реєстрація інфраструктури доступу до даних (DAL)
-builder.Services.AddSingleton<IDbConnectionFactory>(_ => new SqlConnectionFactory(connectionString));
+builder.Services.AddDbContext<BakeryDbContext>(options => options
+    .UseSqlServer(builder.Configuration.GetConnectionString("BakeryOrdersDB"))
+    .EnableDetailedErrors(builder.Environment.IsDevelopment())
+    .EnableSensitiveDataLogging(builder.Environment.IsDevelopment()));
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
-
-// Реєстрація AutoMapper (BLL)
-var mapperConfig = new MapperConfiguration(cfg =>
-{
-    cfg.AddProfile<MappingProfile>();
-});
-builder.Services.AddSingleton(mapperConfig.CreateMapper());
-
-// Реєстрація сервісів бізнес-логіки (BLL)
 builder.Services.AddScoped<ICustomerService, CustomerService>();
 builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
-
-// Контролери та Swagger документація
+builder.Services.AddAutoMapper(typeof(MappingProfile).Assembly);
+builder.Services.AddValidatorsFromAssemblyContaining<CreateCustomerRequestValidator>();
+builder.Services.AddFluentValidationAutoValidation();
 builder.Services.AddControllers();
+builder.Services.AddProblemDetails();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-// Централізована обробка помилок у форматі ProblemDetails (404, 409, 400, 500)
-app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
-
-if (app.Environment.IsDevelopment())
+using (var scope = app.Services.CreateScope())
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
+    var db = scope.ServiceProvider.GetRequiredService<BakeryDbContext>();
+    await GuardAgainstLegacySchemaAsync(db);
+    await db.Database.MigrateAsync();
+    if (app.Environment.IsDevelopment()) await DbInitializer.SeedAsync(db);
 }
 
-app.UseHttpsRedirection();
-app.UseAuthorization();
+app.UseMiddleware<CorrelationIdMiddleware>();
+app.UseSerilogRequestLogging();
+app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
+app.UseSwagger();
+app.UseSwaggerUI();
 app.MapControllers();
+await app.RunAsync();
 
-app.Run();
+static async Task GuardAgainstLegacySchemaAsync(BakeryDbContext db)
+{
+    if (!await db.Database.CanConnectAsync()) return;
+    var appliedMigrations = await db.Database.GetAppliedMigrationsAsync();
+    if (appliedMigrations.Any()) return;
+    var hasLegacyTables = await db.Database
+        .SqlQueryRaw<int>("SELECT COUNT(*) AS [Value] FROM sys.tables WHERE [name] = 'Customers'")
+        .SingleAsync();
+    if (hasLegacyTables > 0)
+        throw new InvalidOperationException(
+            "У базі знайдено схему попередньої лабораторної без застосованих міграцій EF Core. " +
+            "Видаліть базу перед запуском: dotnet ef database drop -f --project Services/Bakery/Bakery.Dal --startup-project Services/Bakery/Bakery.Api");
+}
