@@ -1,5 +1,7 @@
 using AutoMapper;
-using Bakery.BLL.DTOs;
+using Bakery.BLL.DTOs.Customers;
+using Bakery.BLL.DTOs.Orders;
+using Bakery.BLL.DTOs.Payments;
 using Bakery.Domain.Entities;
 
 namespace Bakery.BLL.Mapping;
@@ -8,24 +10,9 @@ public class MappingProfile : Profile
 {
     public MappingProfile()
     {
-        // Клієнти
-        CreateMap<Customer, CustomerDto>().ReverseMap();
-        CreateMap<CustomerCreateDto, Customer>();
-        CreateMap<CustomerUpdateDto, Customer>();
-
-        // Замовлення
-        CreateMap<Order, OrderResponseDto>()
-            .ForMember(dest => dest.CustomerName, opt => opt.MapFrom(src => src.Customer != null ? src.Customer.FullName : null))
-            .ForMember(dest => dest.Items, opt => opt.MapFrom(src => src.Items));
-
-        CreateMap<CreateOrderDto, Order>()
-            .ForMember(dest => dest.Items, opt => opt.MapFrom(src => src.Items));
-
-        // Позиції замовлення
+        CreateMap<Customer, CustomerResponseDto>().ForMember(x => x.FullName, x => x.MapFrom(y => y.FullName));
+        CreateMap<Order, OrderResponseDto>().ForMember(x => x.CustomerName, x => x.MapFrom(y => y.Customer == null ? null : y.Customer.FullName));
         CreateMap<OrderItem, OrderItemResponseDto>();
-        CreateMap<CreateOrderItemDto, OrderItem>();
-
-        // Оплати
-        CreateMap<Payment, PaymentDto>().ReverseMap();
+        CreateMap<Payment, PaymentResponseDto>();
     }
 }
