@@ -243,12 +243,31 @@ db/
 :r db/p2/seed.sql
 ```
 
-### 4.2. MongoDB (лабораторна №1)
+### 4.2. MongoDB (лабораторна №1 → сервіс `Reviews`)
+
+Контейнер з **одно-вузловим репліка-сетом** `rs0`, бо транзакції MongoDB існують лише на репліка-сеті:
+
+```bash
+docker run -d --name bakery-reviews-mongo -p 27017:27017 \
+  --entrypoint mongod mongo:7 --replSet rs0 --bind_ip_all
+
+docker exec bakery-reviews-mongo mongosh --quiet --eval "rs.initiate()"
+
+# учасника реплікації прив'язуємо до імені, яке резолвиться з хост-машини:
+docker exec bakery-reviews-mongo mongosh --quiet --eval "var c = rs.conf(); c.members = [{ _id: 0, host: 'localhost:27017' }]; rs.reconfig(c, { force: true })"
+```
+
+Ручні скрипти лабораторної №1 (схема `$jsonSchema` і демо-дані):
 
 ```bash
 mongosh BakeryReviewsDB db/p3/collections.js
 mongosh BakeryReviewsDB db/p3/seed.js
 ```
+
+> [!NOTE]
+> Від лабораторної №4 скрипти запускати не обов'язково: сервіс `Reviews` на старті сам створює всі
+> індекси (`MongoIndexInitializer`) та ідемпотентно наповнює колекції (`MongoDataSeeder`), а документна
+> структура точно збігається з `db/p3/collections.js` (.camelCaseElementName, без атрибутів у домені).
 
 ### 4.3. Міграції EF Core (лабораторна №3)
 
@@ -386,7 +405,83 @@ Serilog налаштований у `Program.cs` та `appsettings.json` (рів
 
 ---
 
-## 6. Запуск
+## 6. Архітектура сервісу `Reviews` (лабораторна №4)
+
+Чиста архітектура + CQRS. Напрямок залежностей — ззовні всередину; середні шари не знають ні про
+HTTP, ні про MongoDB Driver.
+
+| Проєкт | Залежить від | Що покладено |
+|---|---|---|
+| `Reviews.Domain` | нічого (тільки пакет `MongoDB.Bson` задля `ObjectId`) | `BaseEntity`, базовий `ValueObject`, сутності `Review`/`ProductRating`/`ModerationLog`, VO `Rating`/`PersonName`/`ReviewComment`/`AdminResponse`, enum-и, доменні винятки, інтерфейси репозиторіїв і `IMongoUnitOfWork` |
+| `Reviews.Application` | `Reviews.Domain` | команди з окремими класами-обробниками, Queries через `IReviewQueries`, конвеєр біхавіорів MediatR, валідатори FluentValidation, `MappingProfile` AutoMapper, `AddApplication()` |
+| `Reviews.Infrastructure` | `Reviews.Application`, `Reviews.Domain` | `MongoDbContext`, реєстрація `BsonClassMap` + конвенції, репозиторії на MongoDB.Driver, транзакції, створення індексів, ідемпотентний сід, health check, `AddInfrastructure()` |
+| `Reviews.WebApi` | `Reviews.Application`, `Reviews.Infrastructure` | контролери, які роблять лише `ISender.Send(...)`, ETag/If-Match, ProblemDetails, Swagger, Serilog, DI-композиція |
+
+Шлях запиту: контролер → `ISender` → біхавіори (ззовні всередину: `ExceptionHandling` → `Validation`
+→ `Logging` → `Caching` → `Performance`) → обробник → репозиторій / `IReviewQueries` → MongoDB.
+
+Ключові рішення:
+
+- **Мапінг без атрибутів у домені.** Конвенції (`CamelCaseElementNameConvention`,
+  `IgnoreExtraElementsConvention`) та `BsonClassMap` реєструються в Infrastructure; домен лишається
+  чистим, а приватне поле `tags` мапиться через `SetElementName("tags")`.
+- **Незмінні VO + інкапсуляція.** Властивості тільки з `private set`; зміни — через методи
+  `UpdateContent`, `Approve`, `Reject`, `Flag`, `AddAdminResponse`, кожен із захистом інваріантів.
+- **Denormalized `averageRating`.** Окрім вкладеного `ratings`, у документі лежить обчислене
+  `averageRating` — саме воно дає MongoDB сортувати й сторінкувати за рейтингом без `$unwind`.
+- **Cursor-пагінація на боці MongoDB.** `$match` + `$sort` + `$limit(N+1)` виконуються сервером;
+  токен курсора — `{sortValue}_{hexId24}` із `_id` як tie-breaker, тож сторінки не «зсуваються» при
+  однакових `createdAt`.
+- **Optimistic concurrency.** Кожен документ має `version`; оновлення/видалення фільтрує за
+  `_id + version`, і якщо `MatchedCount == 0` — `ConflictException` → `409`. Зовні це ETag `W/"n"`
+  та заголовок `If-Match`.
+- **Транзакція там, де кількох документів.** Модерація й видалення пишуть у `reviews`,
+  `moderation_logs` і `product_ratings` одним атомарним блоком; якщо сервер не підтримує транзакції
+  (standalone), `MongoUnitOfWork` логує це й виконує роботу без транзакційного обгортання.
+- **Один шар доступу до сесії.** `MongoDbContext.Session` повертає сесію транзакції, якщо вона
+  активна, інакше — сесіюScoped-запиту; завдяки цьому репозиторії не знають про транзакції.
+- **Кеш читань.** `CachingBehavior` кешує лише Queries, які реалізують `ICacheableQuery`
+  (наприклад, рейтинг товару, TTL 60 с).
+
+Ендпоінти:
+
+| Метод | Шлях | Призначення |
+|---|---|---|
+| GET | `/api/v1/reviews` | список із фільтрами (`productId`, `customerId`, `status`, `minAverage`, `tag`, `sort`, `descending`, `cursor`, `limit`) |
+| GET | `/api/v1/reviews/search?text=` | повнотекстовий пошук (`$text`) |
+| GET | `/api/v1/reviews/{id}` | відгук + ETag |
+| POST | `/api/v1/reviews` | створення (201 + Location + ETag) |
+| PUT | `/api/v1/reviews/{id}` | оновлення тексту/оцінок/тегів (If-Match) |
+| DELETE | `/api/v1/reviews/{id}` | видалення + перерахунок рейтингу (If-Match) |
+| PUT | `/api/v1/reviews/by-product/{productId}` | денормалізована зміна назви товару |
+| PUT | `/api/v1/reviews/by-customer/{customerId}` | денормалізована зміна імені клієнта |
+| POST | `/api/v1/moderation/reviews/{id}` | модерація (Approve/Reject/Flag) у транзакції |
+| POST | `/api/v1/moderation/reviews/{id}/admin-response` | відповідь адміністратора |
+| GET | `/api/v1/moderation/logs` | журнал модерації (cursor) |
+| GET | `/api/v1/product-ratings/{productId}` | рейтинг товару (кеш 60 с) |
+| GET | `/health` | health check MongoDB |
+
+### 6.1. Залежності й чистота збірки
+
+`dotnet build Platform.slnx` дає **0 Warning(s), 0 Error(s)** без жодного `<NoWarn>` у `.csproj`.
+Попередження NuGet-аудиту (NU1902/NU1903) закрите оновленням залежностей, а не заглушеням:
+
+| Пакет | Було | Стало | Причина |
+|---|---|---|---|
+| `MongoDB.Driver` / `MongoDB.Bson` | 3.7.0 | 3.13.0 | транзитивні `Snappier` 1.0.0 (GHSA-pggp-6c3x-2xmx) і `SharpCompress` 0.30.1 (GHSA-6c8g-7p36-r338); у 3.13.0 — 1.3.1 та 0.48.1 |
+| `AutoMapper` | 13.0.1 | 16.2.0 | CVE-2026-32933 — DoS через неконтрольовану рекурсію (high, CVSS 7.5); пропатчено від 15.1.1 |
+| `Aspire.Hosting.*` | 9.0.0 | 13.6.4 | транзитивний `KubernetesClient` 15.0.1 (GHSA-w7r3-mgwf-4mqq); у 13.6.4 — 19.0.2 |
+| `System.Security.Cryptography.Pkcs` / `.Xml` | — | 10.0.14 (прямі `PackageReference` у `Bakery.Dal`) | транзитиви `Microsoft.Data.SqlClient` (Pkcs 9.0.4) та інструмента `EF Core Design` (Xml 9.0.0); пряма версія перекриває уразливу в графі |
+
+У коді змінився рівно один виклик: `AddAutoMapper(assembly)` → `AddAutoMapper(cfg => cfg.AddMaps(assembly))`
+(`Reviews.Application/DependencyInjection.cs`, `Bakery.Api/Program.cs`) — це єдиний API-злам оновлення
+AutoMapper; `Profile`, `CreateMap`, `ForMember` й `IMapper` не змінилися.
+Ліцензія AutoMapper з 15-ї версії — RPL1.5 (комерційне використання за ключем); без ключа
+бібліотека працює в режимах development/testing і логує одне попередження при першому мапінгу.
+
+---
+
+## 7. Запуск
 
 ### Через .NET Aspire
 ```bash
@@ -403,9 +498,20 @@ dotnet run --project Services/Bakery/Bakery.Api/Bakery.Api.csproj
 - HTTPS: `https://localhost:7236`
 - Swagger UI: `http://localhost:5172/swagger`
 
+### Сервіс `Reviews` окремо
+```bash
+dotnet run --project Services/Reviews/Reviews.WebApi --launch-profile http
+```
+- HTTP: `http://localhost:5180`
+- HTTPS: `https://localhost:7280`
+- Swagger UI: `http://localhost:5180/swagger/index.html`, openapi: `/swagger/v1/swagger.json`
+- In-memory: MongoDB (`mongodb://localhost:27017`, див. п. 4.2) — на старті сервіс створює індекси
+  й ідемпотентно сієть демо-дані; якщо MongoDB недоступна, сервіс стартує, `/health` показує
+  `Unhealthy`, а запити отримують `503` у форматі ProblemDetails.
+
 ---
 
-## 7. Приклади запитів
+## 8. Приклади запитів
 
 1. **Створення клієнта (201 Created):**
 ```bash
@@ -475,15 +581,55 @@ curl http://localhost:5172/api/v1/orders/99999
 curl -H "X-Correlation-Id: demo-123" http://localhost:5172/api/v1/customers
 ```
 
+### Сервіс `Reviews` (лабораторна №4, порт 5180)
+
+10. **Сторінка відгуків з фільтрами і курсором:**
+```bash
+curl "http://localhost:5180/api/v1/reviews?status=Approved&sort=AverageRating&descending=true&limit=2"
+curl "http://localhost:5180/api/v1/reviews?limit=2&cursor=4670_6aec7023122bc1ce1aa0aab8"
+```
+
+11. **ETag → оновлення (200) і повторна спроба зі старим ETag (409):**
+```bash
+curl -i http://localhost:5180/api/v1/reviews/<id>          # ETag: W/"1"
+curl -X PUT http://localhost:5180/api/v1/reviews/<id> -H 'If-Match: W/"1"' \
+  -H "Content-Type: application/json" \
+  -d '{ "comment": "Оновлений текст відгуку", "taste": 5, "freshness": 4, "aroma": 5, "tags": ["хрусткий"] }'
+curl -X PUT http://localhost:5180/api/v1/reviews/<id> -H 'If-Match: W/"1"' \
+  -H "Content-Type: application/json" -d '{ "comment": "Стара версія", "taste": 1, "freshness": 1, "aroma": 1 }'
+```
+
+12. **Модерація в транзакції (відгук + журнал + перерахунок рейтингу):**
+```bash
+curl -X POST http://localhost:5180/api/v1/moderation/reviews/<id> \
+  -H "Content-Type: application/json" \
+  -d '{ "action": "Approved", "moderator": "admin_olya", "notes": "Правила не порушено" }'
+curl "http://localhost:5180/api/v1/moderation/logs?limit=5"
+```
+
+13. **Денормалізація та повнотекстовий пошук:**
+```bash
+curl -X PUT http://localhost:5180/api/v1/reviews/by-product/1 -H "Content-Type: application/json" \
+  -d '{ "newProductName": "Круасан масляний преміум" }'
+curl "http://localhost:5180/api/v1/reviews/search?text=%D0%BA%D1%80%D1%83%D0%B0%D1%81%D0%B0%D0%BD"
+```
+
+14. **Валідація запиту (400 із словником помилок по полях):**
+```bash
+curl "http://localhost:5180/api/v1/reviews?limit=101"
+curl "http://localhost:5180/api/v1/reviews?cursor=garbage"
+```
+
 ---
 
-## 8. Статус лабораторних
+## 9. Статус лабораторних
 
 | Лаба | Тема | Стан |
 |---|---|---|
 | №1 | Проєктування БД (3 контексти, SQL + MongoDB) | виконано |
 | №2 | Тришарова архітектура на ADO.NET/Dapper | виконано (гілка `lab-02`) |
-| №3 | Тришарова архітектура на EF Core, Code-First, специфікації | поточна гілка `lab-03` |
+| №3 | Тришарова архітектура на EF Core, Code-First, специфікації | виконано (гілка `lab-03`) |
+| №4 | Чиста архітектура + CQRS (MediatR) + MongoDB для сервісу `Reviews` | поточна гілка `lab-04` |
 
 ### Корисні команди
 
