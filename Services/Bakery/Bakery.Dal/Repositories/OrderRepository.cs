@@ -15,4 +15,11 @@ public class OrderRepository(BakeryDbContext context) : GenericRepository<Order>
         if (order is not null) await Context.Entry(order).Reference(x => x.Payment).LoadAsync(ct);
         return order;
     }
+
+    public async Task<Order?> GetWithExplicitStatusHistoryAsync(int id, CancellationToken ct = default)
+    {
+        var order = await Set.FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (order is not null) await Context.Entry(order).Collection(x => x.StatusHistory).LoadAsync(ct);
+        return order;
+    }
 }

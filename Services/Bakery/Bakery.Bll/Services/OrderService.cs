@@ -5,12 +5,19 @@ using Bakery.BLL.Specifications;
 using Bakery.DAL.Interfaces;
 using Bakery.Domain.Entities;
 using Bakery.Domain.Exceptions;
+using FluentValidation;
 
 namespace Bakery.BLL.Services;
 
-public class OrderService(IUnitOfWork uow, IMapper mapper) : IOrderService
+public class OrderService(IUnitOfWork uow, IMapper mapper, IValidator<CreateOrderRequest> createValidator, IValidator<UpdateOrderStatusRequest> statusValidator) : IOrderService
 {
     public async Task<OrderResponseDto?> GetByIdAsync(int id, CancellationToken ct = default) => mapper.Map<OrderResponseDto>(await uow.Orders.GetWithDetailsAsync(id, ct));
+
+    public async Task<IReadOnlyList<OrderStatusHistoryDto>> GetStatusHistoryAsync(int id, CancellationToken ct = default)
+    {
+        var order = await uow.Orders.GetWithExplicitStatusHistoryAsync(id, ct) ?? throw new NotFoundException(nameof(Order), id);
+        return mapper.Map<List<OrderStatusHistoryDto>>(order.StatusHistory.OrderBy(x => x.ChangedAt).ToList());
+    }
 
     public async Task<PagedResponse<OrderResponseDto>> GetByCustomerIdAsync(int customerId, OrderQuery query, CancellationToken ct = default)
     {
@@ -25,6 +32,7 @@ public class OrderService(IUnitOfWork uow, IMapper mapper) : IOrderService
 
     public async Task<OrderResponseDto> CreateAsync(CreateOrderRequest request, CancellationToken ct = default)
     {
+        await createValidator.ValidateAndThrowAsync(request, ct);
         if (await uow.Customers.GetByIdAsync(request.CustomerId, ct) is null) throw new NotFoundException(nameof(Customer), request.CustomerId);
         var order = new Order(request.CustomerId, $"ORD-{Guid.NewGuid():N}"[..16], request.Notes);
         foreach (var item in request.Items)
@@ -39,6 +47,7 @@ public class OrderService(IUnitOfWork uow, IMapper mapper) : IOrderService
 
     public async Task UpdateStatusAsync(int id, UpdateOrderStatusRequest request, CancellationToken ct = default)
     {
+        await statusValidator.ValidateAndThrowAsync(request, ct);
         var order = await uow.Orders.GetByIdAsync(id, ct) ?? throw new NotFoundException(nameof(Order), id);
         order.ChangeStatus(request.NewStatus);
         uow.Orders.Update(order);

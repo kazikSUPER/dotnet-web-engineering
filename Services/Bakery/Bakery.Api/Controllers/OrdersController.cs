@@ -18,6 +18,9 @@ public class OrdersController(IOrderService service) : ControllerBase
     [HttpGet("customer/{customerId:int}")]
     public async Task<ActionResult<PagedResponse<OrderResponseDto>>> GetByCustomer(int customerId, [FromQuery] OrderQuery query, CancellationToken ct) => Ok(await service.GetByCustomerIdAsync(customerId, query, ct));
 
+    [HttpGet("{id:int}/history")]
+    public async Task<ActionResult<IReadOnlyList<OrderStatusHistoryDto>>> GetStatusHistory(int id, CancellationToken ct) => Ok(await service.GetStatusHistoryAsync(id, ct));
+
     [HttpPost]
     public async Task<ActionResult<OrderResponseDto>> Create(CreateOrderRequest request, CancellationToken ct)
     {

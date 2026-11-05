@@ -10,9 +10,20 @@ public sealed class CreateCustomerRequestValidator : AbstractValidator<CreateCus
     public CreateCustomerRequestValidator() { RuleFor(x => x.Email).EmailAddress(); RuleFor(x => x.PhoneNumber).NotEmpty(); }
 }
 
+public sealed class UpdateCustomerRequestValidator : AbstractValidator<UpdateCustomerRequest>
+{
+    public UpdateCustomerRequestValidator() { RuleFor(x => x.Email).EmailAddress(); RuleFor(x => x.PhoneNumber).NotEmpty(); RuleFor(x => x.Age).InclusiveBetween(14, 120); }
+}
+
+public sealed class UpdateOrderStatusRequestValidator : AbstractValidator<UpdateOrderStatusRequest>
+{
+    private static readonly string[] allowed = ["Pending", "Paid", "Baking", "Ready", "Delivered", "Cancelled"];
+    public UpdateOrderStatusRequestValidator() { RuleFor(x => x.NewStatus).NotEmpty().Must(x => allowed.Contains(x)); }
+}
+
 public sealed class CreateOrderRequestValidator : AbstractValidator<CreateOrderRequest>
 {
-    public CreateOrderRequestValidator() { RuleFor(x => x.Items).NotEmpty(); RuleForEach(x => x.Items).SetValidator(new CreateOrderItemRequestValidator()); }
+    public CreateOrderRequestValidator() { RuleFor(x => x.Items).NotEmpty(); RuleForEach(x => x.Items).SetValidator(new CreateOrderItemRequestValidator()); RuleFor(x => x.Items).Must(x => x.Select(i => i.ProductId).Distinct().Count() == x.Count()).WithMessage("Один товар не можна додавати до замовлення кількома рядками."); }
 }
 
 public sealed class CreateOrderItemRequestValidator : AbstractValidator<CreateOrderItemRequest>

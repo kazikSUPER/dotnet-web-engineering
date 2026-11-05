@@ -4,15 +4,18 @@ using Bakery.BLL.Interfaces;
 using Bakery.DAL.Interfaces;
 using Bakery.Domain.Entities;
 using Bakery.Domain.Exceptions;
+using FluentValidation;
+using ValidationException = Bakery.Domain.Exceptions.ValidationException;
 
 namespace Bakery.BLL.Services;
 
-public class PaymentService(IUnitOfWork uow, IMapper mapper) : IPaymentService
+public class PaymentService(IUnitOfWork uow, IMapper mapper, IValidator<ProcessPaymentRequest> processValidator) : IPaymentService
 {
     public async Task<PaymentResponseDto?> GetByOrderIdAsync(int orderId, CancellationToken ct = default) => mapper.Map<PaymentResponseDto>(await uow.Payments.GetByOrderIdAsync(orderId, ct));
 
     public async Task<PaymentResponseDto> ProcessAsync(ProcessPaymentRequest request, CancellationToken ct = default)
     {
+        await processValidator.ValidateAndThrowAsync(request, ct);
         var order = await uow.Orders.GetWithExplicitPaymentAsync(request.OrderId, ct) ?? throw new NotFoundException(nameof(Order), request.OrderId);
         if (order.Payment is not null) throw new BusinessConflictException("Оплата для цього замовлення вже проведена.");
         if (order.Status is "Paid" or "Cancelled") throw new BusinessConflictException("Оплату для цього замовлення провести неможливо.");

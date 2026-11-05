@@ -21,6 +21,7 @@ public class GenericRepository<T> : IGenericRepository<T> where T : class
     public virtual void Update(T entity) => Set.Update(entity);
     public virtual void Delete(T entity) => Set.Remove(entity);
     public virtual Task<int> CountAsync(CancellationToken ct = default) => Set.CountAsync(ct);
-    public virtual Task<int> CountAsync(ISpecification<T> specification, CancellationToken ct = default) => SpecificationEvaluator.GetQuery(Set.AsNoTracking(), specification, applyPaging: false).CountAsync(ct);
-    public virtual async Task<IReadOnlyList<T>> ListAsync(ISpecification<T> specification, CancellationToken ct = default) => await SpecificationEvaluator.GetQuery(Set.AsNoTracking(), specification).ToListAsync(ct);
+    public virtual IQueryable<T> WithSpecification(ISpecification<T> specification, bool applyPaging = true) => SpecificationEvaluator.GetQuery(Set.AsNoTracking(), specification, applyPaging);
+    public virtual Task<int> CountAsync(ISpecification<T> specification, CancellationToken ct = default) => WithSpecification(specification, applyPaging: false).CountAsync(ct);
+    public virtual async Task<IReadOnlyList<T>> ListAsync(ISpecification<T> specification, CancellationToken ct = default) => await WithSpecification(specification).ToListAsync(ct);
 }

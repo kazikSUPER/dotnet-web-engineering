@@ -292,7 +292,8 @@ dotnet ef migrations script \
 ```
 
 Міграція застосовується у `Program.cs` через `MigrateAsync()`; у Development після неї виконується
-ідемпотентний сід (`DbInitializer`): 3 товари та 2 клієнти, категорії — через `InsertData` у міграції.
+ідемпотентний сід (`DbInitializer`): 3 товари, 2 клієнти та зв'язки `ProductCategory` (кожен товар — у двох
+категоріях; сід пропускає створення зв'язків, якщо вони вже є), категорії — через `InsertData` у міграції.
 
 > [!IMPORTANT]
 > Якщо `BakeryOrdersDB` уже створена скриптами лаби 1/2, у ній немає `__EFMigrationsHistory`,
@@ -318,17 +319,24 @@ dotnet ef migrations script \
 - **`Bakery.Dal`** (Data Access Layer):
   - `BakeryDbContext` + `ApplyConfigurationsFromAssembly` (Fluent API) та `Migrations/`.
   - `GenericRepository<T>` — асинхронний CRUD (`GetByIdAsync`, `GetAllAsync`, `AddAsync`, `Update`, `Delete`,
-    `CountAsync`) і читання за специфікацією (`ListAsync(ISpecification<T>)`, `CountAsync(ISpecification<T>)`).
+    `CountAsync`) і читання за специфікацією (`ListAsync(ISpecification<T>)`, `CountAsync(ISpecification<T>)`,
+    `WithSpecification(ISpecification<T>, applyPaging)` — та сама вибірка, але як `IQueryable<T>`, щоб
+    викликаний міг добудувати own LINQ поверх оцінених `Where`/`Include`/`OrderBy`/`Skip`/`Take`).
   - Спеціалізовані репозиторії: `CustomerRepository`, `OrderRepository`, `PaymentRepository`, `ProductRepository`.
   - `OrderRepository.GetWithDetailsAsync` — **eager loading** (`Include`/`ThenInclude`);
-    `GetWithExplicitPaymentAsync` — **explicit loading** (`Entry(...).Reference(...).LoadAsync`);
-    фільтрація/сортування замовлень — **LINQ to Entities**.
+    `GetWithExplicitPaymentAsync` — **explicit loading** через `Reference` (`Entry(...).Reference(...).LoadAsync`);
+    `GetWithExplicitStatusHistoryAsync` — **explicit loading** через `Collection`
+    (`Entry(...).Collection(x => x.StatusHistory).LoadAsync(ct)`);
+    `ProductRepository.GetCategoryLinksAsync` — LINQ над проміжною сутністю `ProductCategory` (M:N) з
+    фільтром по `AddedAt` і `Include` обох навігацій.
   - `UnitOfWork` (єдина точка `SaveChangesAsync` і транзакцій) та `SpecificationEvaluator`.
-- **`Bakery.Bll`** (Business Logic Layer): `CustomerService`, `OrderService`, `PaymentService`; DTO
-  (`CreateCustomerRequest`, `CreateOrderRequest`, `OrderQuery`, `PagedResponse<T>` тощо); AutoMapper-профіль;
-  валідатори FluentValidation; `CustomerOrdersSpecification`.
-- **`Bakery.Api`** (Presentation): тонкі асинхронні контролери, коректні коди відповідей, Swagger,
-  `GlobalExceptionHandlerMiddleware` (ProblemDetails), `CorrelationIdMiddleware`, Serilog.
+- **`Bakery.Bll`** (Business Logic Layer): `CustomerService`, `OrderService`, `PaymentService`, `ProductService`;
+  DTO (`CreateCustomerRequest`, `CreateOrderRequest`, `OrderQuery`, `PagedResponse<T>`, `OrderStatusHistoryDto`,
+  `ProductInCategoryDto` тощо); AutoMapper-профіль; валідатори FluentValidation (реєструються в DI і
+  **випускаються з DI в конструкторі сервісу**, виклик — `ValidateAndThrowAsync`); `CustomerOrdersSpecification`.
+- **`Bakery.Api`** (Presentation): тонкі асинхронні контролери (`CustomersController`, `OrdersController`,
+  `PaymentsController`, `ProductsController`), коректні коди відповідей, Swagger,
+  `GlobalExceptionHandlerMiddleware` (ProblemDetails / ValidationProblemDetails), `CorrelationIdMiddleware`, Serilog.
 - **`Platform.AppHost`**: .NET Aspire оркестратор (API + SQL Server).
 
 ```mermaid
@@ -362,6 +370,15 @@ var total = await uow.Orders.CountAsync(specification, ct);
 
 Специфікація залежить лише від `System.Linq.Expressions`, тому її можна тестувати окремо від EF.
 
+`GenericRepository.WithSpecification` віддає ту саму вибірку як `IQueryable<T>` — це той самий
+`SpecificationEvaluator`, але викликаний може дошарувати own LINQ (напр. `.Select(...)` у DTO) до того,
+як запит піде в базу:
+
+```csharp
+public virtual IQueryable<T> WithSpecification(ISpecification<T> specification, bool applyPaging = true) =>
+    SpecificationEvaluator.GetQuery(Set.AsNoTracking(), specification, applyPaging);
+```
+
 ### 5.2. Пагінація, фільтрація, сортування
 
 `GET /api/v1/orders/customer/{customerId}` приймає:
@@ -378,10 +395,27 @@ var total = await uow.Orders.CountAsync(specification, ct);
 
 ### 5.3. Валідація
 
-Два рівні: **DataAnnotations** на DTO (`[Required]`, `[Range]`, `[EmailAddress]`, `[RegularExpression]`) та
-**FluentValidation** (`CreateCustomerRequestValidator`, `CreateOrderRequestValidator`,
-`ProcessPaymentRequestValidator`). Помилки повертаються як `400` + `ValidationProblemDetails`
-з переліком полів у `errors`.
+Два рівні й два місця виклику:
+
+- **DataAnnotations на DTO** (`[Required]`, `[Range]`, `[EmailAddress]`, `[RegularExpression]`) — перевіряє
+  сам MVC перед входом у метод контролера (`ApiController` + ModelState), тому грубо некоректне тіло
+  запиту відсікається ще до бізнес-логіки.
+- **FluentValidation у BLL** — валідатори реєструються одним рядком `AddValidatorsFromAssembly(...)`
+  (без `AddFluentValidationAutoValidation`: авто-валідація — це легасі-шлях, який забирає помилки до
+  middleware і не залишає BLL перевіряти між об'єктами). Сервіс отримує `IValidator<TRequest>`
+  у конструктор і викликає `await validator.ValidateAndThrowAsync(request, ct)` **перед** зверненням до
+  бази, тож бізнес-правила формату перевіряються там, де вони належать до бізнес-логіки.
+
+| Валідатор | Додатково до атрибутів |
+|---|---|
+| `CreateCustomerRequestValidator`, `UpdateCustomerRequestValidator` | `EmailAddress()`, `PhoneNumber` обов'язковий, вік 14…120 |
+| `CreateOrderRequestValidator` | рядки `Items` не порожні + **один товар не може бути у двох рядках** (правила немає в атрибутах) |
+| `CreateOrderItemRequestValidator` | `ProductId > 0`, `Quantity` 1…100 |
+| `UpdateOrderStatusRequestValidator` | `NewStatus` має бути серед шести дозволених значень |
+| `ProcessPaymentRequestValidator` | `OrderId > 0`, `Amount > 0` |
+
+Помилки будь-якого з двох рівнів приводяться до одного формату: `400` +
+`ValidationProblemDetails` (`type`, `title`, `status`, `errors: { поле: [повідомлення] }`).
 
 ### 5.4. Централізована обробка помилок
 
@@ -391,9 +425,14 @@ var total = await uow.Orders.CountAsync(specification, ct);
 |---|---|
 | `NotFoundException` | 404 |
 | `BusinessConflictException` | 409 |
-| `ValidationException`, `DomainValidationException`, `ArgumentException` | 400 |
+| `ValidationException`, `DomainValidationException`, `ArgumentException` | 400 — `ValidationProblemDetails` із словником `errors` |
+| `FluentValidation.ValidationException` | 400 — `ValidationProblemDetails`, ключі — `PropertyName` невдалих правил |
 | `DbUpdateException` / `DbUpdateConcurrencyException` | 409 |
 | інші | 500 (деталі — лише в Development) |
+
+Для 400 серіалізація робиться явно через `JsonSerializer.Serialize(details, details.GetType(), …)`:
+без передачі фактичного типу `errors` не потрапив би на верхній рівень, бо `ValidationProblemDetails`
+наслідується від `ProblemDetails`.
 
 ### 5.5. Логування (Serilog)
 
@@ -581,15 +620,36 @@ curl http://localhost:5172/api/v1/orders/99999
 curl -H "X-Correlation-Id: demo-123" http://localhost:5172/api/v1/customers
 ```
 
+10. **Історія статусів (explicit loading, `Collection(...).LoadAsync`):**
+```bash
+curl http://localhost:5172/api/v1/orders/1/history
+```
+
+11. **Товари категорії через проміжну сутність M:N + фільтр за `AddedAt`:**
+```bash
+curl "http://localhost:5172/api/v1/products/category/1"
+curl "http://localhost:5172/api/v1/products/category/1?notEarlierThan=2030-01-01T00:00:00Z"
+```
+Без фільтра — дві позиції категорії з `productName`, `price`, `categoryName`, `addedAt`; з фільтром у
+майбутнє — `[]`, бо `AddedAt` у посіяних зв'язків теперішній.
+
+12. **Валідація, яку не дає жоден атрибут DTO (400 `ValidationProblemDetails`):**
+```bash
+curl -X POST http://localhost:5172/api/v1/orders -H "Content-Type: application/json" \
+  -d '{ "customerId": 1, "items": [ { "productId": 1, "quantity": 2 }, { "productId": 1, "quantity": 3 } ] }'
+```
+Один товар у двох рядках — правило лише у `CreateOrderRequestValidator`, тому помилка приходить
+з BLL, а не з ModelState: `errors.Items` + `title`/`type` `ValidationProblemDetails`.
+
 ### Сервіс `Reviews` (лабораторна №4, порт 5180)
 
-10. **Сторінка відгуків з фільтрами і курсором:**
+13. **Сторінка відгуків з фільтрами і курсором:**
 ```bash
 curl "http://localhost:5180/api/v1/reviews?status=Approved&sort=AverageRating&descending=true&limit=2"
 curl "http://localhost:5180/api/v1/reviews?limit=2&cursor=4670_6aec7023122bc1ce1aa0aab8"
 ```
 
-11. **ETag → оновлення (200) і повторна спроба зі старим ETag (409):**
+14. **ETag → оновлення (200) і повторна спроба зі старим ETag (409):**
 ```bash
 curl -i http://localhost:5180/api/v1/reviews/<id>          # ETag: W/"1"
 curl -X PUT http://localhost:5180/api/v1/reviews/<id> -H 'If-Match: W/"1"' \
@@ -599,7 +659,7 @@ curl -X PUT http://localhost:5180/api/v1/reviews/<id> -H 'If-Match: W/"1"' \
   -H "Content-Type: application/json" -d '{ "comment": "Стара версія", "taste": 1, "freshness": 1, "aroma": 1 }'
 ```
 
-12. **Модерація в транзакції (відгук + журнал + перерахунок рейтингу):**
+15. **Модерація в транзакції (відгук + журнал + перерахунок рейтингу):**
 ```bash
 curl -X POST http://localhost:5180/api/v1/moderation/reviews/<id> \
   -H "Content-Type: application/json" \
@@ -607,14 +667,14 @@ curl -X POST http://localhost:5180/api/v1/moderation/reviews/<id> \
 curl "http://localhost:5180/api/v1/moderation/logs?limit=5"
 ```
 
-13. **Денормалізація та повнотекстовий пошук:**
+16. **Денормалізація та повнотекстовий пошук:**
 ```bash
 curl -X PUT http://localhost:5180/api/v1/reviews/by-product/1 -H "Content-Type: application/json" \
   -d '{ "newProductName": "Круасан масляний преміум" }'
 curl "http://localhost:5180/api/v1/reviews/search?text=%D0%BA%D1%80%D1%83%D0%B0%D1%81%D0%B0%D0%BD"
 ```
 
-14. **Валідація запиту (400 із словником помилок по полях):**
+17. **Валідація запиту (400 із словником помилок по полях):**
 ```bash
 curl "http://localhost:5180/api/v1/reviews?limit=101"
 curl "http://localhost:5180/api/v1/reviews?cursor=garbage"
@@ -628,7 +688,7 @@ curl "http://localhost:5180/api/v1/reviews?cursor=garbage"
 |---|---|---|
 | №1 | Проєктування БД (3 контексти, SQL + MongoDB) | виконано |
 | №2 | Тришарова архітектура на ADO.NET/Dapper | виконано (гілка `lab-02`) |
-| №3 | Тришарова архітектура на EF Core, Code-First, специфікації | виконано (гілка `lab-03`) |
+| №3 | Тришарова архітектура на EF Core, Code-First, специфікації | виконано (гілка `lab-03`); доопрацювання — специфікація як `IQueryable` (`WithSpecification`), explicit loading колекцій, LINQ над M:N із фільтром `AddedAt`, явні `IValidator` у BLL замість авто-валідації — у `lab-04` |
 | №4 | Чиста архітектура + CQRS (MediatR) + MongoDB для сервісу `Reviews` | поточна гілка `lab-04` |
 
 ### Корисні команди
