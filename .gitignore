@@ -12,6 +12,8 @@ bld/
 [Oo]bj/
 [Ll]og/
 [Ll]ogs/
+BuildHost-*/
+MSBuildTemp*/
 
 ## Visual Studio
 .vs/
