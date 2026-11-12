@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace Bakery.Reviews.WebApi.Controllers;
 
 [ApiController]
-[Route("api/v1/moderation")]
+[Route("api/moderation")]
 public sealed class ModerationController(ISender sender) : ControllerBase
 {
     [HttpPost("reviews/{id}")]

@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace Bakery.Reviews.WebApi.Controllers;
 
 [ApiController]
-[Route("api/v1/reviews")]
+[Route("api/reviews")]
 public class ReviewsController(ISender sender) : ControllerBase
 {
     [HttpGet]
