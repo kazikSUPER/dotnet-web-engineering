@@ -1,6 +1,6 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
-var sql = builder.AddSqlServer("sql");
+var sql = builder.AddSqlServer("sql").WithContainerName("dotnet-web-sql");
 var catalogDb = sql.AddDatabase("CatalogDb");
 var ordersDb = sql.AddDatabase("OrdersDb");
 
