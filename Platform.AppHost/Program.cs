@@ -1,9 +1,13 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
-var sql = builder.AddSqlServer("sql")
-                 .AddDatabase("BakeryOrdersDB");
+var sql = builder.AddSqlServer("sql");
+var catalogDb = sql.AddDatabase("CatalogDb");
+var ordersDb = sql.AddDatabase("OrdersDb");
 
-builder.AddProject("bakery-api", "../Services/Bakery/Bakery.Api/Bakery.Api.csproj")
-       .WithReference(sql);
+builder.AddProject("catalog-api", "../Services/Catalog/Catalog.Api/Catalog.Api.csproj")
+       .WithReference(catalogDb);
+
+builder.AddProject("orders-api", "../Services/Orders/Orders.Api/Orders.Api.csproj")
+       .WithReference(ordersDb);
 
 builder.Build().Run();
