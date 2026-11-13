@@ -12,5 +12,14 @@ public class MappingProfile : Profile
             .ForMember(x => x.ProductName, x => x.MapFrom(y => y.Product == null ? string.Empty : y.Product.Name))
             .ForMember(x => x.Price, x => x.MapFrom(y => y.Product == null ? 0m : y.Product.Price))
             .ForMember(x => x.CategoryName, x => x.MapFrom(y => y.Category == null ? string.Empty : y.Category.Name));
+
+        CreateMap<Product, ProductCardDto>()
+            .ForMember(x => x.ProductId, x => x.MapFrom(y => y.Id))
+            .ForMember(x => x.Description, x => x.MapFrom(y => y.Detail == null ? null : y.Detail.Description))
+            .ForMember(x => x.Manufacturer, x => x.MapFrom(y => y.Detail == null ? null : y.Detail.Manufacturer))
+            .ForMember(x => x.Categories, x => x.MapFrom(y => y.ProductCategories
+                .Where(pc => pc.Category != null)
+                .Select(pc => pc.Category!.Name)
+                .ToArray()));
     }
 }

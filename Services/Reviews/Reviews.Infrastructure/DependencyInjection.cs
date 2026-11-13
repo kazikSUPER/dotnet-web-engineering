@@ -8,6 +8,7 @@ using Bakery.Reviews.Infrastructure.Seeding;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using MongoDB.Driver;
+using Platform.ServiceDefaults;
 
 namespace Bakery.Reviews.Infrastructure;
 
@@ -23,7 +24,7 @@ public static class DependencyInjection
 
         MongoDbSerialization.Register();
 
-        services.AddSingleton(_ => CreateClient(options));
+        services.AddSingleton(_ => CreateClient(options, ResolveConnectionString(configuration, options)));
         services.AddSingleton<MongoTransactionState>();
 
         services.AddScoped<IMongoSessionAccessor, MongoSessionAccessor>();
@@ -41,13 +42,20 @@ public static class DependencyInjection
         return services;
     }
 
-    private static IMongoClient CreateClient(MongoDbOptions options)
+    private static string ResolveConnectionString(IConfiguration configuration, MongoDbOptions options)
     {
-        var settings = MongoClientSettings.FromConnectionString(options.ConnectionString);
+        var fromHosting = configuration.GetConnectionString("BakeryReviewsDB");
+
+        return string.IsNullOrWhiteSpace(fromHosting) ? options.ConnectionString : fromHosting;
+    }
+
+    private static IMongoClient CreateClient(MongoDbOptions options, string connectionString)
+    {
+        var settings = MongoClientSettings.FromConnectionString(connectionString);
 
         settings.ServerSelectionTimeout = TimeSpan.FromMilliseconds(options.ServerSelectionTimeoutMilliseconds);
         settings.ApplicationName = "Bakery.Reviews";
 
-        return new MongoClient(settings);
+        return new MongoClient(settings.WithOpenTelemetry());
     }
 }

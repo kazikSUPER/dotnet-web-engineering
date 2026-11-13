@@ -520,7 +520,59 @@ AutoMapper; `Profile`, `CreateMap`, `ForMember` й `IMapper` не змінили
 
 ---
 
-## 7. Запуск
+## 7. Лабораторна робота №5: мікросервісна платформа
+
+Лабораторна побудована навколо трьох бізнес-сервісів, API Gateway та Aggregator:
+
+```text
+Platform.AppHost          .NET Aspire orchestration
+Platform.ServiceDefaults  Serilog, OpenTelemetry, health checks, discovery, correlation ID
+Platform.ApiGateway        YARP reverse proxy, port 5000
+Platform.Aggregator        typed HTTP clients and composite responses
+Services/Catalog           products and categories
+Services/Orders            customers, orders and payments
+Services/Reviews           reviews, ratings and moderation
+```
+
+`Platform.AppHost` створює SQL Server і MongoDB з постійними Docker volumes, передає SQL-пароль як secret parameter, створює бази `CatalogDb` та `OrdersDb`, підключає `BakeryReviewsDB` і задає порядок запуску залежностей. Gateway доступний на `http://localhost:5000`.
+
+Усі API використовують `AddServiceDefaults()` та `MapDefaultEndpoints()`. Спільні налаштування забезпечують структуроване логування Serilog, OpenTelemetry, health endpoints `/health` і `/alive`, service discovery, кореляційний заголовок `X-Correlation-Id` та його передачу typed HTTP clients. Gateway маршрутизує запити до сервісів через YARP:
+
+| Призначення | Префікс Gateway |
+|---|---|
+| Orders | `/api/orders`, `/api/customers`, `/api/payments` |
+| Catalog | `/api/products` |
+| Reviews | `/api/reviews`, `/api/product-ratings`, `/api/moderation` |
+| Aggregator | `/api/aggregator` |
+
+Aggregator виконує незалежні downstream-запити паралельно через `Task.WhenAll`, формує composite DTO і повертає частковий результат із попередженнями, якщо один із сервісів тимчасово недоступний. Бізнес-операції та downstream-виклики мають власні `ActivitySource` spans.
+
+### Перевірка через Docker Compose
+
+Compose-файл запускає лише інфраструктуру Lab 5 — SQL Server і MongoDB. Повний стек API слід запускати через `Platform.AppHost`; не запускайте Compose та Aspire одночасно, оскільки вони використовують однакові імена контейнерів і volumes.
+
+```powershell
+Copy-Item .env.example .env
+# відкрийте .env і задайте сильний MSSQL_SA_PASSWORD
+docker compose config
+docker compose up -d
+docker compose ps
+docker compose logs -f
+docker compose down
+```
+
+Для повної перевірки застосунку використовуйте:
+
+```powershell
+dotnet build Platform.slnx --no-restore
+dotnet run --project Platform.AppHost/Platform.AppHost.csproj
+```
+
+Після старту перевірте `http://localhost:5000/health`, `http://localhost:5000/swagger` та один агрегований endpoint, наприклад `GET /api/aggregator/products/{productId}/overview`. Dashboard Aspire покаже стан ресурсів, health checks, логи й traces.
+
+---
+
+## 8. Запуск
 
 ### Через .NET Aspire
 ```bash
@@ -528,14 +580,6 @@ dotnet run --project Platform.AppHost/Platform.AppHost.csproj
 ```
 Aspire піднімає SQL Server у контейнері та API; адреса Aspire Dashboard і порти сервісів
 друкуються в консолі запуску.
-
-### API окремо
-```bash
-dotnet run --project Services/Bakery/Bakery.Api/Bakery.Api.csproj
-```
-- HTTP: `http://localhost:5172`
-- HTTPS: `https://localhost:7236`
-- Swagger UI: `http://localhost:5172/swagger`
 
 ### Сервіс `Reviews` окремо
 ```bash
@@ -550,11 +594,35 @@ dotnet run --project Services/Reviews/Reviews.WebApi --launch-profile http
 
 ---
 
-## 8. Приклади запитів
+## 9. Приклади запитів
+
+### Lab 5: запити через API Gateway
+
+Після запуску `Platform.AppHost` усі запити Lab 5 виконуються через `http://localhost:5000`:
+
+```bash
+# health Gateway
+curl http://localhost:5000/health
+
+# correlation ID проходить через Gateway до downstream-сервісу
+curl -H "X-Correlation-Id: demo-lab5" http://localhost:5000/api/products/category/1
+
+# агрегований огляд товару
+curl http://localhost:5000/api/aggregator/products/1/overview
+
+# агрегована збірка замовлення
+curl http://localhost:5000/api/aggregator/orders/1/full
+```
+
+Для створення клієнта, замовлення або відгуку використовуйте відповідно префікси
+`/api/customers`, `/api/orders` і `/api/reviews`. Swagger Gateway доступний за адресою
+`http://localhost:5000/swagger`.
+
+### Попередні лабораторні
 
 1. **Створення клієнта (201 Created):**
 ```bash
-curl -X POST http://localhost:5172/api/v1/customers \
+curl -X POST http://localhost:5000/api/customers \
   -H "Content-Type: application/json" \
   -d '{
     "firstName": "Оксана",
@@ -568,12 +636,12 @@ curl -X POST http://localhost:5172/api/v1/customers \
 
 2. **Список клієнтів (200 OK):**
 ```bash
-curl http://localhost:5172/api/v1/customers
+curl http://localhost:5000/api/customers
 ```
 
 3. **Оформлення замовлення (201 Created, знімок ціни з БД):**
 ```bash
-curl -X POST http://localhost:5172/api/v1/orders \
+curl -X POST http://localhost:5000/api/orders \
   -H "Content-Type: application/json" \
   -d '{
     "customerId": 1,
@@ -682,7 +750,7 @@ curl "http://localhost:5180/api/v1/reviews?cursor=garbage"
 
 ---
 
-## 9. Статус лабораторних
+## 10. Статус лабораторних
 
 | Лаба | Тема | Стан |
 |---|---|---|

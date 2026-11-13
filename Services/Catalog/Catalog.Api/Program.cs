@@ -1,18 +1,17 @@
 using Catalog.API.Middleware;
+using Catalog.BLL.Diagnostics;
 using Catalog.BLL.Interfaces;
 using Catalog.BLL.Mapping;
 using Catalog.BLL.Services;
 using Catalog.DAL.Data;
 using Catalog.DAL.Interfaces;
 using Microsoft.EntityFrameworkCore;
-using Serilog;
+using Platform.ServiceDefaults;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Host.UseSerilog((context, configuration) => configuration
-    .ReadFrom.Configuration(context.Configuration)
-    .Enrich.FromLogContext()
-    .Enrich.WithProperty("Application", "Catalog.Api"));
+builder.Host.UsePlatformSerilog("Catalog.Api");
+builder.AddServiceDefaults(CatalogActivitySources.SourceNames);
 
 builder.Services.AddDbContext<CatalogDbContext>(options => options
     .UseSqlServer(builder.Configuration.GetConnectionString("CatalogDb"), sql => sql.EnableRetryOnFailure(20, TimeSpan.FromSeconds(5), null))
@@ -36,12 +35,12 @@ using (var scope = app.Services.CreateScope())
     if (app.Environment.IsDevelopment()) await DbInitializer.SeedAsync(db);
 }
 
-app.UseMiddleware<CorrelationIdMiddleware>();
-app.UseSerilogRequestLogging();
+app.UsePlatformDefaults("Catalog.Api");
 app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
 app.UseSwagger();
 app.UseSwaggerUI();
 app.MapControllers();
+app.MapDefaultEndpoints();
 await app.RunAsync();
 
 static async Task GuardAgainstLegacySchemaAsync(CatalogDbContext db)

@@ -1,20 +1,19 @@
+using FluentValidation;
+using Microsoft.EntityFrameworkCore;
 using Orders.API.Middleware;
+using Orders.BLL.Diagnostics;
 using Orders.BLL.Interfaces;
 using Orders.BLL.Mapping;
 using Orders.BLL.Services;
 using Orders.BLL.Validators;
 using Orders.DAL.Data;
 using Orders.DAL.Interfaces;
-using FluentValidation;
-using Microsoft.EntityFrameworkCore;
-using Serilog;
+using Platform.ServiceDefaults;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Host.UseSerilog((context, configuration) => configuration
-    .ReadFrom.Configuration(context.Configuration)
-    .Enrich.FromLogContext()
-    .Enrich.WithProperty("Application", "Orders.Api"));
+builder.Host.UsePlatformSerilog("Orders.Api");
+builder.AddServiceDefaults(OrdersActivitySources.SourceNames);
 
 builder.Services.AddDbContext<OrdersDbContext>(options => options
     .UseSqlServer(builder.Configuration.GetConnectionString("OrdersDb"), sql => sql.EnableRetryOnFailure(20, TimeSpan.FromSeconds(5), null))
@@ -41,12 +40,12 @@ using (var scope = app.Services.CreateScope())
     if (app.Environment.IsDevelopment()) await DbInitializer.SeedAsync(db);
 }
 
-app.UseMiddleware<CorrelationIdMiddleware>();
-app.UseSerilogRequestLogging();
+app.UsePlatformDefaults("Orders.Api");
 app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
 app.UseSwagger();
 app.UseSwaggerUI();
 app.MapControllers();
+app.MapDefaultEndpoints();
 await app.RunAsync();
 
 static async Task GuardAgainstLegacySchemaAsync(OrdersDbContext db)

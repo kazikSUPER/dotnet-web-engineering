@@ -1,19 +1,19 @@
 using System.Text.Json.Serialization;
 using Bakery.Reviews.Application;
+using Bakery.Reviews.Application.Diagnostics;
 using Bakery.Reviews.Infrastructure;
 using Bakery.Reviews.Infrastructure.Health;
 using Bakery.Reviews.Infrastructure.Initialization;
 using Bakery.Reviews.Infrastructure.Seeding;
 using Bakery.Reviews.WebApi.Middleware;
 using Microsoft.OpenApi;
+using Platform.ServiceDefaults;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Host.UseSerilog((context, configuration) => configuration
-    .ReadFrom.Configuration(context.Configuration)
-    .Enrich.FromLogContext()
-    .Enrich.WithProperty("Application", "Reviews.WebApi"));
+builder.Host.UsePlatformSerilog("Reviews.WebApi");
+builder.AddServiceDefaults(ReviewsActivitySources.SourceNames);
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
@@ -35,15 +35,14 @@ var app = builder.Build();
 
 await InitializeDatabaseAsync(app);
 
-app.UseMiddleware<CorrelationIdMiddleware>();
-app.UseSerilogRequestLogging();
+app.UsePlatformDefaults("Reviews.WebApi");
 app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
 
 app.UseSwagger();
 app.UseSwaggerUI();
 
 app.MapControllers();
-app.MapHealthChecks("/health");
+app.MapDefaultEndpoints();
 
 try
 {

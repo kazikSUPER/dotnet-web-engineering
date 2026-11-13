@@ -1,13 +1,47 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
-var sql = builder.AddSqlServer("sql").WithContainerName("dotnet-web-sql");
+var sqlPassword = builder.AddParameter("sql-password", secret: true);
+
+var sql = builder.AddSqlServer("sql", sqlPassword)
+    .WithContainerName("dotnet-web-sql")
+    .WithDataVolume("dotnet-web-sql-data");
+
 var catalogDb = sql.AddDatabase("CatalogDb");
 var ordersDb = sql.AddDatabase("OrdersDb");
 
-builder.AddProject("catalog-api", "../Services/Catalog/Catalog.Api/Catalog.Api.csproj")
-       .WithReference(catalogDb);
+var mongo = builder.AddMongoDB("mongo")
+    .WithContainerName("dotnet-web-mongo")
+    .WithDataVolume("dotnet-web-mongo-data");
 
-builder.AddProject("orders-api", "../Services/Orders/Orders.Api/Orders.Api.csproj")
-       .WithReference(ordersDb);
+var reviewsDb = mongo.AddDatabase("BakeryReviewsDB");
+
+var catalog = builder.AddProject<Projects.Catalog_Api>("catalog-api")
+    .WithReference(catalogDb)
+    .WaitFor(catalogDb);
+
+var orders = builder.AddProject<Projects.Orders_Api>("orders-api")
+    .WithReference(ordersDb)
+    .WaitFor(ordersDb);
+
+var reviews = builder.AddProject<Projects.Reviews_WebApi>("reviews-api")
+    .WithReference(reviewsDb)
+    .WaitFor(reviewsDb);
+
+var aggregator = builder.AddProject<Projects.Platform_Aggregator>("aggregator")
+    .WithReference(catalog)
+    .WithReference(orders)
+    .WithReference(reviews)
+    .WaitFor(catalog)
+    .WaitFor(orders)
+    .WaitFor(reviews);
+
+builder.AddProject<Projects.Platform_ApiGateway>("gateway")
+    .WithReference(catalog)
+    .WithReference(orders)
+    .WithReference(reviews)
+    .WithReference(aggregator)
+    .WithHttpEndpoint(port: 5000, name: "http")
+    .WaitFor(aggregator)
+    .WithExternalHttpEndpoints();
 
 builder.Build().Run();

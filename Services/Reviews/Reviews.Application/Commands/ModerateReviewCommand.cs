@@ -1,4 +1,5 @@
 using Bakery.Reviews.Application.Common;
+using Bakery.Reviews.Application.Diagnostics;
 using Bakery.Reviews.Application.DTOs;
 using Bakery.Reviews.Application.Queries;
 using Bakery.Reviews.Domain.Entities;
@@ -6,7 +7,9 @@ using Bakery.Reviews.Domain.Enums;
 using Bakery.Reviews.Domain.Exceptions;
 using Bakery.Reviews.Domain.Interfaces;
 using MediatR;
+using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
+using System.Diagnostics;
 
 namespace Bakery.Reviews.Application.Commands;
 
@@ -21,14 +24,21 @@ public sealed class ModerateReviewCommandHandler(
     IProductRatingRepository ratings,
     IModerationLogRepository logs,
     IMongoUnitOfWork unitOfWork,
-    IReviewQueries queries) : IRequestHandler<ModerateReviewCommand, ReviewDto>
+    IReviewQueries queries,
+    ILogger<ModerateReviewCommandHandler> logger) : IRequestHandler<ModerateReviewCommand, ReviewDto>
 {
     public async Task<ReviewDto> Handle(ModerateReviewCommand request, CancellationToken ct)
     {
+        using var activity = ReviewsActivitySources.Commands.StartActivity("review.moderate", ActivityKind.Internal);
+        activity?.SetTag("review.id", request.Id);
+        activity?.SetTag("review.moderation_action", request.Action.ToString());
+        activity?.SetTag("review.moderator", request.Moderator);
+
         var id = ObjectId.Parse(request.Id);
         var review = await reviews.GetByIdAsync(id, ct) ?? throw new NotFoundException("Відгук", request.Id);
 
         var expectedVersion = review.Version;
+        var previousStatus = review.Status;
 
         switch (request.Action)
         {
@@ -53,6 +63,14 @@ public sealed class ModerateReviewCommandHandler(
             await logs.AddAsync(new ModerationLog(review.Id, request.Action, request.Moderator, request.Notes), token);
             await ratings.RecalculateAsync(review.ProductId, token);
         }, ct);
+
+        activity?.SetTag("review.product_id", review.ProductId);
+        activity?.SetTag("review.status", review.Status.ToString());
+        activity?.SetTag("review.status_previous", previousStatus.ToString());
+
+        logger.LogInformation(
+            "Відгук {ReviewId} товару {ProductId} модератор {Moderator} перевів зі статусу {PreviousStatus} у {Status}",
+            review.Id, review.ProductId, request.Moderator, previousStatus, review.Status);
 
         return await queries.GetByIdAsync(id, ct) ?? throw new NotFoundException("Відгук", request.Id);
     }
