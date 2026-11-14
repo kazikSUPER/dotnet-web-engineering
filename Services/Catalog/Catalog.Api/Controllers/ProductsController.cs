@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace Catalog.API.Controllers;
 
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/products")]
 public class ProductsController(IProductService service) : ControllerBase
 {
     [HttpGet("{id:int}")]

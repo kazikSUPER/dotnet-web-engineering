@@ -12,9 +12,21 @@ builder.Host.UsePlatformSerilog("Aggregator");
 
 builder.AddServiceDefaults(AggregatorActivitySources.AssemblyName);
 
-builder.Services.AddHttpClient<OrdersClient>(client => client.BaseAddress = new Uri("https+http://orders-api"));
-builder.Services.AddHttpClient<CatalogClient>(client => client.BaseAddress = new Uri("https+http://catalog-api"));
-builder.Services.AddHttpClient<ReviewsClient>(client => client.BaseAddress = new Uri("https+http://reviews-api"));
+builder.Services.AddHttpClient<OrdersClient>(client =>
+{
+    client.BaseAddress = new Uri("https+http://orders-api");
+    client.Timeout = TimeSpan.FromSeconds(5);
+});
+builder.Services.AddHttpClient<CatalogClient>(client =>
+{
+    client.BaseAddress = new Uri("https+http://catalog-api");
+    client.Timeout = TimeSpan.FromSeconds(5);
+});
+builder.Services.AddHttpClient<ReviewsClient>(client =>
+{
+    client.BaseAddress = new Uri("https+http://reviews-api");
+    client.Timeout = TimeSpan.FromSeconds(5);
+});
 
 builder.Services.AddTransient<OrderAssemblyService>();
 builder.Services.AddTransient<ProductOverviewService>();

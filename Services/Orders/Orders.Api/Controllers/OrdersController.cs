@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace Orders.API.Controllers;
 
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/orders")]
 public class OrdersController(IOrderService service) : ControllerBase
 {
     [HttpGet("{id:int}")]

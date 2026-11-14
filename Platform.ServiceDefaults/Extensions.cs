@@ -35,7 +35,7 @@ public static class Extensions
 
         builder.Services.AddServiceDiscovery();
         builder.Services.AddHttpContextAccessor();
-        builder.Services.TryAddSingleton<CorrelationIdPropagationHandler>();
+        builder.Services.TryAddTransient<CorrelationIdPropagationHandler>();
 
         builder.Services.ConfigureHttpClientDefaults(http =>
         {
