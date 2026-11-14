@@ -1,767 +1,467 @@
-# Craft Bakery Platform — Платформа крафтової пекарні
+# Craft Bakery Platform — мікросервісна платформа крафтової пекарні
 
 Навчальний семестровий проєкт із дисципліни **«Технології .NET у веб-інженерії»**.
 Викладач: **Томка Ю.Я.** | Студент: **Казімір В.І.** (група 443-2).
 
----
-
-## 1. Опис предметної області та архітектури
-
-Проєкт являє собою розподілену систему для крафтової пекарні **«Craft Bakery»**, що забезпечує автоматизацію прийому онлайн-замовлень свіжої випічки, управління асортиментом та технологічними картами (рецептурою), а також збір і модерацію відгуків покупців.
-
-Система спроєктована на базі патерну **Database-per-Service** і розділена на три незалежні контексти:
-1. **Orders Context (Замовлення та клієнти):** реляційна БД `BakeryOrdersDB` (SQL Server, доступ через **EF Core 10, Code-First**).
-   - **Сутності:** `Customers`, `Orders`, `OrderItems`, `Payments`, `OrderStatusHistory`, `Products`, а також довідкові `Categories`, `ProductCategories`, `ProductDetails` (1:1), `ProductImages`.
-2. **Catalog Context (Каталог та рецептура):** реляційна БД `BakeryCatalogDB` (SQL Server).
-   - **Сутності:** `Countries`, `Categories`, `Products`, `ProductDetails` (1:1), `Distributors`, `Ingredients`, `ProductIngredients` (M:N).
-3. **Reviews Context (Відгуки покупців):** документоорієнтована NoSQL БД `BakeryReviewsDB` (MongoDB).
-   - **Колекції:** `reviews`, `product_ratings`, `moderation_logs`.
-
-> [!IMPORTANT]
-> Між базами даних **відсутні фізичні зв'язки FOREIGN KEY**. Усі міжсервісні посилання здійснюються за числовими ідентифікаторами (`Id`), що гарантує повну незалежність розгортання та автономність кожного мікросервісу.
-
-> [!NOTE]
-> У межах лабораторної №3 доменну модель розширено довідковими сутностями каталогу (`Category`, `ProductCategory`, `ProductDetail`, `ProductImage`) — щоб продемонструвати зв'язки 1:1 та M:N у Fluent API. Фізично вони зберігаються в `BakeryOrdersDB`; винесення в окремий Catalog-сервіс — окремий крок курсу.
+Платформа складається з трьох бізнес-сервісів (`Catalog`, `Orders`, `Reviews`), API Gateway на YARP,
+Aggregator композитних відповідей та спільних `Platform.ServiceDefaults`. Оркестрація — .NET Aspire
+(`Platform.AppHost`): SQL Server, MongoDB і Redis у контейнерах з постійними volumes, порядок запуску
+через `WaitFor`, трасування та логи в Aspire Dashboard.
 
 ---
 
-## 2. Політика дублювання даних між базами (Data Duplication Policy)
+## 1. Швидкий старт платформи (лабораторна №5)
 
-| Поле / Дані | База-власник (Master) | Де дублюється (Replica) | Мета дублювання | Механізм підтримки узгодженості |
-|---|---|---|---|---|
-| `UnitPrice` (Ціна товару) | `BakeryCatalogDB.Products` | `BakeryOrdersDB.OrderItems` | Фіксація суми покупки: зміна ціни в каталозі не впливає на старі чеки | **Знімок (Snapshot):** копіюється в момент створення замовлення |
-| `ProductName` (Назва товару) | `BakeryCatalogDB.Products` | `BakeryOrdersDB.OrderItems` | Автономність друку чеків та звітів без мережевих запитів до каталогу | **Знімок (Snapshot):** копіюється в момент покупки |
-| `Products.Name, Price` | `BakeryCatalogDB.Products` | `BakeryOrdersDB.Products` | Локальна копія довідника товарів для швидкого оформлення кошика та перевірки наявності | **Подієва узгодженість (Eventual Consistency):** подія `ProductCatalogUpdatedEvent` |
-| `ProductName` (Назва товару) | `BakeryCatalogDB.Products` | `BakeryReviewsDB.reviews` | Швидка видача списку відгуків клієнту без міжсервісних Join | **Подієва узгодженість (Eventual Consistency):** подія `ProductRenamedEvent` |
-| `CustomerName` (Ім'я клієнта) | `BakeryOrdersDB.Customers` | `BakeryReviewsDB.reviews` | Відображення автора відгуку без звернення до бази клієнтів | **Подієва узгодженість (Eventual Consistency):** подія `CustomerProfileUpdatedEvent` |
+Потрібні: **.NET SDK 10**, **Docker Desktop** (запущений), PowerShell або bash.
 
----
-
-## 3. Діаграми сутностей (ERD)
-
-### 3.1. Діаграма Проєкту №1 (Orders Context — BakeryOrdersDB)
-
-Зв'язки: 1:1 (`Orders` $\leftrightarrow$ `Payments`, `Products` $\leftrightarrow$ `ProductDetails`), 1:N (`Customers` $\rightarrow$ `Orders`, `Orders` $\rightarrow$ `OrderItems`, `Orders` $\rightarrow$ `OrderStatusHistory`), M:N (`Orders` $\leftrightarrow$ `Products` через `OrderItems`; `Products` $\leftrightarrow$ `Categories` через `ProductCategories`).
-
-```mermaid
-erDiagram
-    Customers ||--o{ Orders : "places (1:N)"
-    Orders ||--|{ OrderItems : "contains (1:N)"
-    Products ||--o{ OrderItems : "referenced (1:N)"
-    Orders ||--|| Payments : "has (1:1)"
-    Orders ||--o{ OrderStatusHistory : "audit (1:N)"
-    Products ||--|| ProductDetails : "details (1:1)"
-    Products ||--o{ ProductImages : "images (1:N)"
-    Products ||--|{ ProductCategories : "has (1:N)"
-    Categories ||--|{ ProductCategories : "groups (1:N)"
-
-    Customers {
-        int Id PK
-        nvarchar FirstName
-        nvarchar LastName
-        nvarchar Email UK
-        nvarchar PhoneNumber
-        char Gender
-        int Age
-        datetime2 CreatedAt
-        bit IsDeleted
-        rowversion RowVersion
-    }
-
-    Products {
-        int Id PK
-        nvarchar Name
-        decimal Price
-        int Stock
-        datetime2 CreatedAt
-        bit IsDeleted
-        rowversion RowVersion
-    }
-
-    Categories {
-        int Id PK
-        nvarchar Name UK
-    }
-
-    ProductCategories {
-        int ProductId PK, FK
-        int CategoryId PK, FK
-        datetime2 AddedAt
-    }
-
-    ProductDetails {
-        int ProductId PK, FK
-        nvarchar Description
-        nvarchar Manufacturer
-    }
-
-    ProductImages {
-        int Id PK
-        int ProductId FK
-        nvarchar Url
-        int SortOrder
-    }
-
-    Orders {
-        int Id PK
-        nvarchar OrderNumber UK
-        int CustomerId FK
-        nvarchar Status
-        decimal TotalAmount
-        datetime2 OrderDate
-        nvarchar Notes
-        datetime2 CreatedAt
-        bit IsDeleted
-        rowversion RowVersion
-    }
-
-    OrderItems {
-        int Id PK
-        int OrderId FK
-        int ProductId FK
-        nvarchar ProductName
-        decimal UnitPrice
-        int Quantity
-        decimal TotalPrice
-        datetime2 CreatedAt
-        bit IsDeleted
-    }
-
-    OrderStatusHistory {
-        int Id PK
-        int OrderId FK
-        nvarchar Status
-        datetime2 ChangedAt
-        nvarchar Comment
-    }
-
-    Payments {
-        int OrderId PK, FK
-        nvarchar TransactionNumber UK
-        nvarchar PaymentMethod
-        decimal Amount
-        datetime2 PaymentDate
-        nvarchar Status
-        datetime2 CreatedAt
-        bit IsDeleted
-        rowversion RowVersion
-    }
-```
-
-### 3.2. Діаграма Проєкту №2 (Catalog Context — BakeryCatalogDB)
-Зв'язки: 1:1 (`Products` $\leftrightarrow$ `ProductDetails`), 1:N (`Categories` $\rightarrow$ `Products`, `Countries` $\rightarrow$ `Distributors`), M:N (`Products` $\leftrightarrow$ `Ingredients` через `ProductIngredients` з власним полем `AmountGram`).
-
-```mermaid
-erDiagram
-    Categories ||--o{ Products : "categorizes (1:N)"
-    Products ||--|| ProductDetails : "details (1:1)"
-    Countries ||--o{ Distributors : "origin (1:N)"
-    Distributors ||--o{ Ingredients : "supplies (1:N)"
-    Products ||--|{ ProductIngredients : "has (1:N)"
-    Ingredients ||--|{ ProductIngredients : "used_in (1:N)"
-
-    Categories {
-        int Id PK
-        nvarchar Name
-        nvarchar Slug UK
-        nvarchar Description
-        bit IsActive
-    }
-
-    Products {
-        int Id PK
-        nvarchar Name
-        nvarchar Sku UK
-        nvarchar Description
-        decimal Price
-        int WeightGram
-        int CategoryId FK
-        bit IsAvailable
-        datetime2 CreatedAt
-    }
-
-    ProductDetails {
-        int ProductId PK, FK
-        nvarchar StorageTemperature
-        int ShelfLifeHours
-        nvarchar NutritionalInfo
-        datetime2 CreatedAt
-    }
-
-    Distributors {
-        int Id PK
-        nvarchar CompanyName
-        nvarchar TaxNumber UK
-        nvarchar ContactPhone
-        int CountryId FK
-        nvarchar Address
-    }
-
-    Countries {
-        int Id PK
-        nvarchar Name UK
-        char IsoCode UK
-    }
-
-    Ingredients {
-        int Id PK
-        nvarchar Name
-        int CaloriesPer100g
-        int DistributorId FK
-        int OriginCountryId FK
-        bit IsAllergen
-    }
-
-    ProductIngredients {
-        int ProductId PK, FK
-        int IngredientId PK, FK
-        decimal AmountGram
-        int StepOrder
-        datetime2 AddedAt
-    }
-```
-
----
-
-## 4. Розгортання баз даних
-
-### 4.1. SQL-скрипти (лабораторна №1)
-
-Скрипти згруповані у каталозі `db/`:
-```text
-db/
-├── p1/    # Проєкт №1 (Orders): schema.sql · procedures.sql · seed.sql
-├── p2/    # Проєкт №2 (Catalog): schema.sql · seed.sql
-└── p3/    # Проєкт №3 (MongoDB): collections.js · seed.js
-```
-
-```sql
-:r db/p1/schema.sql        -- таблиці, зв'язки, індекси
-:r db/p1/procedures.sql    -- збережувані процедури (State Machine статусів)
-:r db/p1/seed.sql          -- ідемпотентний сід
-:r db/p2/schema.sql
-:r db/p2/seed.sql
-```
-
-### 4.2. MongoDB (лабораторна №1 → сервіс `Reviews`)
-
-Контейнер з **одно-вузловим репліка-сетом** `rs0`, бо транзакції MongoDB існують лише на репліка-сеті:
+### 1.1. Пароль SQL Server — лише через secret, не в репозиторії
 
 ```bash
-docker run -d --name bakery-reviews-mongo -p 27017:27017 \
-  --entrypoint mongod mongo:7 --replSet rs0 --bind_ip_all
-
-docker exec bakery-reviews-mongo mongosh --quiet --eval "rs.initiate()"
-
-# учасника реплікації прив'язуємо до імені, яке резолвиться з хост-машини:
-docker exec bakery-reviews-mongo mongosh --quiet --eval "var c = rs.conf(); c.members = [{ _id: 0, host: 'localhost:27017' }]; rs.reconfig(c, { force: true })"
+dotnet user-secrets set "Parameters:sql-password" "YourStrong!Passw0rd" --project Platform.AppHost
 ```
 
-Ручні скрипти лабораторної №1 (схема `$jsonSchema` і демо-дані):
+`Platform.AppHost/Program.cs` читає його як `builder.AddParameter("sql-password", secret: true)` і
+передає в `AddSqlServer`. У репозиторії пароля немає: для Docker Compose він лежить у `.env`
+(файл у `.gitignore`), поруч лежить шаблон `.env.example`.
+
+### 1.2. Запуск усієї платформи однією командою
 
 ```bash
-mongosh BakeryReviewsDB db/p3/collections.js
-mongosh BakeryReviewsDB db/p3/seed.js
+dotnet run --project Platform.AppHost
 ```
 
-> [!NOTE]
-> Від лабораторної №4 скрипти запускати не обов'язково: сервіс `Reviews` на старті сам створює всі
-> індекси (`MongoIndexInitializer`) та ідемпотентно наповнює колекції (`MongoDataSeeder`), а документна
-> структура точно збігається з `db/p3/collections.js` (.camelCaseElementName, без атрибутів у домені).
+Aspire піднімає контейнери БД, застосовує міграції EF Core при старті сервісів, сіє демо-дані та
+запускає сервіси → Aggregator → Gateway. У консолі друкуються адреса **Aspire Dashboard** і login-URL
+з токеном — там видно стан ресурсів, логи, traces і metrics.
 
-### 4.3. Міграції EF Core (лабораторна №3)
+**API Gateway — єдина точка входу: `http://localhost:5000`.**
 
-Схема Orders-сервісу тепер керується **EF Core Code-First**: 10 конфігурацій `IEntityTypeConfiguration<T>`
-(Fluent API: PK/FK, check-constraints, unique-індекси, `rowversion`, 1:1 та M:N) і одна міграція `InitialCreate`.
-
-```bash
-# створити нову міграцію
-dotnet ef migrations add <Name> \
-  --project Services/Bakery/Bakery.Dal \
-  --startup-project Services/Bakery/Bakery.Api
-
-# застосувати до БД (також виконується автоматично при старті застосунку)
-dotnet ef database update \
-  --project Services/Bakery/Bakery.Dal \
-  --startup-project Services/Bakery/Bakery.Api
-
-# згенерувати SQL-скрипт міграції
-dotnet ef migrations script \
-  --project Services/Bakery/Bakery.Dal \
-  --startup-project Services/Bakery/Bakery.Api
-```
-
-Міграція застосовується у `Program.cs` через `MigrateAsync()`; у Development після неї виконується
-ідемпотентний сід (`DbInitializer`): 3 товари, 2 клієнти та зв'язки `ProductCategory` (кожен товар — у двох
-категоріях; сід пропускає створення зв'язків, якщо вони вже є), категорії — через `InsertData` у міграції.
-
-> [!IMPORTANT]
-> Якщо `BakeryOrdersDB` уже створена скриптами лаби 1/2, у ній немає `__EFMigrationsHistory`,
-> і `MigrateAsync()` завершиться помилкою `There is already an object named 'Customers'`.
-> Застосунок перевіряє це на старті та кидає зрозуміле повідомлення. Перед першим запуском видаліть базу:
->
-> ```bash
-> dotnet ef database drop -f \
->   --project Services/Bakery/Bakery.Dal \
->   --startup-project Services/Bakery/Bakery.Api
-> ```
->
-> Дані лаби 1/2 відтворюються скриптами `db/p1`–`db/p2` та сідом EF Core.
-
----
-
-## 5. Архітектура сервісу `Bakery` (лабораторні №2–3)
-
-- **`Bakery.Domain`**: доменні моделі з інкапсуляцією (`Customer`, `Order`, `OrderItem`, `Payment`, `Product`,
-  `OrderStatusHistory`, `Category`, `ProductCategory`, `ProductDetail`, `ProductImage`) та доменні винятки
-  (`NotFoundException`, `BusinessConflictException`, `ValidationException`, `DomainValidationException`).
-  Жодних залежностей від EF Core чи ASP.NET.
-- **`Bakery.Dal`** (Data Access Layer):
-  - `BakeryDbContext` + `ApplyConfigurationsFromAssembly` (Fluent API) та `Migrations/`.
-  - `GenericRepository<T>` — асинхронний CRUD (`GetByIdAsync`, `GetAllAsync`, `AddAsync`, `Update`, `Delete`,
-    `CountAsync`) і читання за специфікацією (`ListAsync(ISpecification<T>)`, `CountAsync(ISpecification<T>)`,
-    `WithSpecification(ISpecification<T>, applyPaging)` — та сама вибірка, але як `IQueryable<T>`, щоб
-    викликаний міг добудувати own LINQ поверх оцінених `Where`/`Include`/`OrderBy`/`Skip`/`Take`).
-  - Спеціалізовані репозиторії: `CustomerRepository`, `OrderRepository`, `PaymentRepository`, `ProductRepository`.
-  - `OrderRepository.GetWithDetailsAsync` — **eager loading** (`Include`/`ThenInclude`);
-    `GetWithExplicitPaymentAsync` — **explicit loading** через `Reference` (`Entry(...).Reference(...).LoadAsync`);
-    `GetWithExplicitStatusHistoryAsync` — **explicit loading** через `Collection`
-    (`Entry(...).Collection(x => x.StatusHistory).LoadAsync(ct)`);
-    `ProductRepository.GetCategoryLinksAsync` — LINQ над проміжною сутністю `ProductCategory` (M:N) з
-    фільтром по `AddedAt` і `Include` обох навігацій.
-  - `UnitOfWork` (єдина точка `SaveChangesAsync` і транзакцій) та `SpecificationEvaluator`.
-- **`Bakery.Bll`** (Business Logic Layer): `CustomerService`, `OrderService`, `PaymentService`, `ProductService`;
-  DTO (`CreateCustomerRequest`, `CreateOrderRequest`, `OrderQuery`, `PagedResponse<T>`, `OrderStatusHistoryDto`,
-  `ProductInCategoryDto` тощо); AutoMapper-профіль; валідатори FluentValidation (реєструються в DI і
-  **випускаються з DI в конструкторі сервісу**, виклик — `ValidateAndThrowAsync`); `CustomerOrdersSpecification`.
-- **`Bakery.Api`** (Presentation): тонкі асинхронні контролери (`CustomersController`, `OrdersController`,
-  `PaymentsController`, `ProductsController`), коректні коди відповідей, Swagger,
-  `GlobalExceptionHandlerMiddleware` (ProblemDetails / ValidationProblemDetails), `CorrelationIdMiddleware`, Serilog.
-- **`Platform.AppHost`**: .NET Aspire оркестратор (API + SQL Server).
-
-```mermaid
-graph TD
-    AppHost["Platform.AppHost (.NET Aspire Orchestration)"]
-    API["Bakery.Api (REST, ProblemDetails, Serilog, Swagger)"]
-    BLL["Bakery.Bll (Services, DTO, AutoMapper, FluentValidation, Specifications)"]
-    DAL["Bakery.Dal (EF Core DbContext, Generic Repository, UnitOfWork, Migrations)"]
-    Domain["Bakery.Domain (Entities & Domain Exceptions)"]
-    DB[("SQL Server (BakeryOrdersDB)")]
-
-    AppHost -->|Оркеструє| API
-    AppHost -->|Підключає ресурс БД| DB
-    API -->|DI| BLL
-    BLL -->|DI, UoW & Specifications| DAL
-    DAL -->|Моделі| Domain
-    DAL -->|EF Core| DB
-```
-
-### 5.1. Specification pattern
-
-Складна логіка вибірки винесена з репозиторію в окремий клас `CustomerOrdersSpecification`
-(критерій, `Include`, сортування, `Skip`/`Take`). Репозиторій приймає специфікацію як параметр,
-`SpecificationEvaluator` транслює її в LINQ-вираз для EF Core:
-
-```csharp
-var specification = new CustomerOrdersSpecification(customerId, query.Status, page, pageSize, query.SortBy, query.Desc);
-var entities = await uow.Orders.ListAsync(specification, ct);
-var total = await uow.Orders.CountAsync(specification, ct);
-```
-
-Специфікація залежить лише від `System.Linq.Expressions`, тому її можна тестувати окремо від EF.
-
-`GenericRepository.WithSpecification` віддає ту саму вибірку як `IQueryable<T>` — це той самий
-`SpecificationEvaluator`, але викликаний може дошарувати own LINQ (напр. `.Select(...)` у DTO) до того,
-як запит піде в базу:
-
-```csharp
-public virtual IQueryable<T> WithSpecification(ISpecification<T> specification, bool applyPaging = true) =>
-    SpecificationEvaluator.GetQuery(Set.AsNoTracking(), specification, applyPaging);
-```
-
-### 5.2. Пагінація, фільтрація, сортування
-
-`GET /api/v1/orders/customer/{customerId}` приймає:
-
-| Параметр | Значення за замовчуванням | Опис |
-|---|---|---|
-| `page` | `1` | номер сторінки (мінімум 1) |
-| `pageSize` | `10` | розмір сторінки (1…100) |
-| `status` | — | фільтр за статусом замовлення |
-| `sortBy` | `orderDate` | `orderDate` \| `totalAmount` \| `status` |
-| `desc` | `true` | напрямок сортування |
-
-Відповідь: `items`, `page`, `pageSize`, `totalCount`, `totalPages`, `hasNext`, `hasPrevious`.
-
-### 5.3. Валідація
-
-Два рівні й два місця виклику:
-
-- **DataAnnotations на DTO** (`[Required]`, `[Range]`, `[EmailAddress]`, `[RegularExpression]`) — перевіряє
-  сам MVC перед входом у метод контролера (`ApiController` + ModelState), тому грубо некоректне тіло
-  запиту відсікається ще до бізнес-логіки.
-- **FluentValidation у BLL** — валідатори реєструються одним рядком `AddValidatorsFromAssembly(...)`
-  (без `AddFluentValidationAutoValidation`: авто-валідація — це легасі-шлях, який забирає помилки до
-  middleware і не залишає BLL перевіряти між об'єктами). Сервіс отримує `IValidator<TRequest>`
-  у конструктор і викликає `await validator.ValidateAndThrowAsync(request, ct)` **перед** зверненням до
-  бази, тож бізнес-правила формату перевіряються там, де вони належать до бізнес-логіки.
-
-| Валідатор | Додатково до атрибутів |
-|---|---|
-| `CreateCustomerRequestValidator`, `UpdateCustomerRequestValidator` | `EmailAddress()`, `PhoneNumber` обов'язковий, вік 14…120 |
-| `CreateOrderRequestValidator` | рядки `Items` не порожні + **один товар не може бути у двох рядках** (правила немає в атрибутах) |
-| `CreateOrderItemRequestValidator` | `ProductId > 0`, `Quantity` 1…100 |
-| `UpdateOrderStatusRequestValidator` | `NewStatus` має бути серед шести дозволених значень |
-| `ProcessPaymentRequestValidator` | `OrderId > 0`, `Amount > 0` |
-
-Помилки будь-якого з двох рівнів приводяться до одного формату: `400` +
-`ValidationProblemDetails` (`type`, `title`, `status`, `errors: { поле: [повідомлення] }`).
-
-### 5.4. Централізована обробка помилок
-
-`GlobalExceptionHandlerMiddleware` перехоплює всі невиловлені винятки та повертає `ProblemDetails`:
-
-| Виняток | HTTP |
-|---|---|
-| `NotFoundException` | 404 |
-| `BusinessConflictException` | 409 |
-| `ValidationException`, `DomainValidationException`, `ArgumentException` | 400 — `ValidationProblemDetails` із словником `errors` |
-| `FluentValidation.ValidationException` | 400 — `ValidationProblemDetails`, ключі — `PropertyName` невдалих правил |
-| `DbUpdateException` / `DbUpdateConcurrencyException` | 409 |
-| інші | 500 (деталі — лише в Development) |
-
-Для 400 серіалізація робиться явно через `JsonSerializer.Serialize(details, details.GetType(), …)`:
-без передачі фактичного типу `errors` не потрапив би на верхній рівень, бо `ValidationProblemDetails`
-наслідується від `ProblemDetails`.
-
-### 5.5. Логування (Serilog)
-
-Serilog налаштований у `Program.cs` та `appsettings.json` (рівні, console sink, output template).
-Кожен запит логується через `UseSerilogRequestLogging` (метод, шлях, статус, тривалість).
-`CorrelationIdMiddleware` додає до всіх логів `CorrelationId` (з заголовка `X-Correlation-Id` або
-`TraceIdentifier`) та `UserId` (з `X-User-Id`, якщо переданий), а також повертає `X-Correlation-Id`
-у відповіді.
-
----
-
-## 6. Архітектура сервісу `Reviews` (лабораторна №4)
-
-Чиста архітектура + CQRS. Напрямок залежностей — ззовні всередину; середні шари не знають ні про
-HTTP, ні про MongoDB Driver.
-
-| Проєкт | Залежить від | Що покладено |
-|---|---|---|
-| `Reviews.Domain` | нічого (тільки пакет `MongoDB.Bson` задля `ObjectId`) | `BaseEntity`, базовий `ValueObject`, сутності `Review`/`ProductRating`/`ModerationLog`, VO `Rating`/`PersonName`/`ReviewComment`/`AdminResponse`, enum-и, доменні винятки, інтерфейси репозиторіїв і `IMongoUnitOfWork` |
-| `Reviews.Application` | `Reviews.Domain` | команди з окремими класами-обробниками, Queries через `IReviewQueries`, конвеєр біхавіорів MediatR, валідатори FluentValidation, `MappingProfile` AutoMapper, `AddApplication()` |
-| `Reviews.Infrastructure` | `Reviews.Application`, `Reviews.Domain` | `MongoDbContext`, реєстрація `BsonClassMap` + конвенції, репозиторії на MongoDB.Driver, транзакції, створення індексів, ідемпотентний сід, health check, `AddInfrastructure()` |
-| `Reviews.WebApi` | `Reviews.Application`, `Reviews.Infrastructure` | контролери, які роблять лише `ISender.Send(...)`, ETag/If-Match, ProblemDetails, Swagger, Serilog, DI-композиція |
-
-Шлях запиту: контролер → `ISender` → біхавіори (ззовні всередину: `ExceptionHandling` → `Validation`
-→ `Logging` → `Caching` → `Performance`) → обробник → репозиторій / `IReviewQueries` → MongoDB.
-
-Ключові рішення:
-
-- **Мапінг без атрибутів у домені.** Конвенції (`CamelCaseElementNameConvention`,
-  `IgnoreExtraElementsConvention`) та `BsonClassMap` реєструються в Infrastructure; домен лишається
-  чистим, а приватне поле `tags` мапиться через `SetElementName("tags")`.
-- **Незмінні VO + інкапсуляція.** Властивості тільки з `private set`; зміни — через методи
-  `UpdateContent`, `Approve`, `Reject`, `Flag`, `AddAdminResponse`, кожен із захистом інваріантів.
-- **Denormalized `averageRating`.** Окрім вкладеного `ratings`, у документі лежить обчислене
-  `averageRating` — саме воно дає MongoDB сортувати й сторінкувати за рейтингом без `$unwind`.
-- **Cursor-пагінація на боці MongoDB.** `$match` + `$sort` + `$limit(N+1)` виконуються сервером;
-  токен курсора — `{sortValue}_{hexId24}` із `_id` як tie-breaker, тож сторінки не «зсуваються» при
-  однакових `createdAt`.
-- **Optimistic concurrency.** Кожен документ має `version`; оновлення/видалення фільтрує за
-  `_id + version`, і якщо `MatchedCount == 0` — `ConflictException` → `409`. Зовні це ETag `W/"n"`
-  та заголовок `If-Match`.
-- **Транзакція там, де кількох документів.** Модерація й видалення пишуть у `reviews`,
-  `moderation_logs` і `product_ratings` одним атомарним блоком; якщо сервер не підтримує транзакції
-  (standalone), `MongoUnitOfWork` логує це й виконує роботу без транзакційного обгортання.
-- **Один шар доступу до сесії.** `MongoDbContext.Session` повертає сесію транзакції, якщо вона
-  активна, інакше — сесіюScoped-запиту; завдяки цьому репозиторії не знають про транзакції.
-- **Кеш читань.** `CachingBehavior` кешує лише Queries, які реалізують `ICacheableQuery`
-  (наприклад, рейтинг товару, TTL 60 с).
-
-Ендпоінти:
-
-| Метод | Шлях | Призначення |
-|---|---|---|
-| GET | `/api/v1/reviews` | список із фільтрами (`productId`, `customerId`, `status`, `minAverage`, `tag`, `sort`, `descending`, `cursor`, `limit`) |
-| GET | `/api/v1/reviews/search?text=` | повнотекстовий пошук (`$text`) |
-| GET | `/api/v1/reviews/{id}` | відгук + ETag |
-| POST | `/api/v1/reviews` | створення (201 + Location + ETag) |
-| PUT | `/api/v1/reviews/{id}` | оновлення тексту/оцінок/тегів (If-Match) |
-| DELETE | `/api/v1/reviews/{id}` | видалення + перерахунок рейтингу (If-Match) |
-| PUT | `/api/v1/reviews/by-product/{productId}` | денормалізована зміна назви товару |
-| PUT | `/api/v1/reviews/by-customer/{customerId}` | денормалізована зміна імені клієнта |
-| POST | `/api/v1/moderation/reviews/{id}` | модерація (Approve/Reject/Flag) у транзакції |
-| POST | `/api/v1/moderation/reviews/{id}/admin-response` | відповідь адміністратора |
-| GET | `/api/v1/moderation/logs` | журнал модерації (cursor) |
-| GET | `/api/v1/product-ratings/{productId}` | рейтинг товару (кеш 60 с) |
-| GET | `/health` | health check MongoDB |
-
-### 6.1. Залежності й чистота збірки
-
-`dotnet build Platform.slnx` дає **0 Warning(s), 0 Error(s)** без жодного `<NoWarn>` у `.csproj`.
-Попередження NuGet-аудиту (NU1902/NU1903) закрите оновленням залежностей, а не заглушеням:
-
-| Пакет | Було | Стало | Причина |
+| Ресурс | Роль | Порт під Aspire | Порт окремого запуску (`--launch-profile http`) |
 |---|---|---|---|
-| `MongoDB.Driver` / `MongoDB.Bson` | 3.7.0 | 3.13.0 | транзитивні `Snappier` 1.0.0 (GHSA-pggp-6c3x-2xmx) і `SharpCompress` 0.30.1 (GHSA-6c8g-7p36-r338); у 3.13.0 — 1.3.1 та 0.48.1 |
-| `AutoMapper` | 13.0.1 | 16.2.0 | CVE-2026-32933 — DoS через неконтрольовану рекурсію (high, CVSS 7.5); пропатчено від 15.1.1 |
-| `Aspire.Hosting.*` | 9.0.0 | 13.6.4 | транзитивний `KubernetesClient` 15.0.1 (GHSA-w7r3-mgwf-4mqq); у 13.6.4 — 19.0.2 |
-| `System.Security.Cryptography.Pkcs` / `.Xml` | — | 10.0.14 (прямі `PackageReference` у `Bakery.Dal`) | транзитиви `Microsoft.Data.SqlClient` (Pkcs 9.0.4) та інструмента `EF Core Design` (Xml 9.0.0); пряма версія перекриває уразливу в графі |
+| `gateway` | YARP reverse proxy | **5000 (фіксований)** | 5000 |
+| `aggregator` | композитні read-only відповіді | динамічний (див. Dashboard) | 5190 |
+| `catalog-api` | товари й категорії, EF Core | динамічний | 5173 |
+| `orders-api` | клієнти, замовлення, оплати, EF Core | динамічний | 5172 |
+| `reviews-api` | відгуки, рейтинги, модерація, MongoDB | динамічний | 5180 |
+| `sql` | SQL Server 2022, контейнер `dotnet-web-sql` | 1433 | 1433 |
+| `mongo` | MongoDB 8.3, контейнер `dotnet-web-mongo` | 27017 | 27017 |
+| `redis` | Redis 8 (лабораторна №6), контейнер `dotnet-web-redis` | 6379 | 6379 |
 
-У коді змінився рівно один виклик: `AddAutoMapper(assembly)` → `AddAutoMapper(cfg => cfg.AddMaps(assembly))`
-(`Reviews.Application/DependencyInjection.cs`, `Bakery.Api/Program.cs`) — це єдиний API-злам оновлення
-AutoMapper; `Profile`, `CreateMap`, `ForMember` й `IMapper` не змінилися.
-Ліцензія AutoMapper з 15-ї версії — RPL1.5 (комерційне використання за ключем); без ключа
-бібліотека працює в режимах development/testing і логує одне попередження при першому мапінгу.
+Під Aspire сервіси отримують динамічні порти — фактичні URL видно в Dashboard; фіксовані порти з
+таблиці діють при окремому запуску проєкту. Gateway завжди на 5000, тому всі приклади нижче — через нього.
 
----
+### 1.3. Перевірка після старту
 
-## 7. Лабораторна робота №5: мікросервісна платформа
-
-Лабораторна побудована навколо трьох бізнес-сервісів, API Gateway та Aggregator:
-
-```text
-Platform.AppHost          .NET Aspire orchestration
-Platform.ServiceDefaults  Serilog, OpenTelemetry, health checks, discovery, correlation ID
-Platform.ApiGateway        YARP reverse proxy, port 5000
-Platform.Aggregator        typed HTTP clients and composite responses
-Services/Catalog           products and categories
-Services/Orders            customers, orders and payments
-Services/Reviews           reviews, ratings and moderation
+```bash
+curl http://localhost:5000/health
+curl -H "X-Correlation-Id: demo-lab5" http://localhost:5000/api/products/category/1
+curl http://localhost:5000/api/aggregator/products/1/overview
 ```
 
-`Platform.AppHost` створює SQL Server і MongoDB з постійними Docker volumes, передає SQL-пароль як secret parameter, створює бази `CatalogDb` та `OrdersDb`, підключає `BakeryReviewsDB` і задає порядок запуску залежностей. Gateway доступний на `http://localhost:5000`.
+### 1.4. Альтернатива: інфраструктура одним стеком у Docker Desktop
 
-Усі API використовують `AddServiceDefaults()` та `MapDefaultEndpoints()`. Спільні налаштування забезпечують структуроване логування Serilog, OpenTelemetry, health endpoints `/health` і `/alive`, service discovery, кореляційний заголовок `X-Correlation-Id` та його передачу typed HTTP clients. Gateway маршрутизує запити до сервісів через YARP:
+`docker-compose.yml` піднімає **лише SQL Server і MongoDB** одним стеком `dotnet-web`
+(одна кнопка Start/Stop у Docker Desktop):
 
-| Призначення | Префікс Gateway |
-|---|---|
-| Orders | `/api/orders`, `/api/customers`, `/api/payments` |
-| Catalog | `/api/products` |
-| Reviews | `/api/reviews`, `/api/product-ratings`, `/api/moderation` |
-| Aggregator | `/api/aggregator` |
-
-Aggregator виконує незалежні downstream-запити паралельно через `Task.WhenAll`, формує composite DTO і повертає частковий результат із попередженнями, якщо один із сервісів тимчасово недоступний. Бізнес-операції та downstream-виклики мають власні `ActivitySource` spans.
-
-### Перевірка через Docker Compose
-
-Compose-файл запускає лише інфраструктуру Lab 5 — SQL Server і MongoDB. Повний стек API слід запускати через `Platform.AppHost`; не запускайте Compose та Aspire одночасно, оскільки вони використовують однакові імена контейнерів і volumes.
-
-```powershell
-Copy-Item .env.example .env
-# відкрийте .env і задайте сильний MSSQL_SA_PASSWORD
-docker compose config
-docker compose up -d
+```bash
+cp .env.example .env   # або Copy-Item .env.example .env; задайте сильний MSSQL_SA_PASSWORD
+docker compose up -d   # обидва контейнери + мережа dotnet-web + постійні volumes
 docker compose ps
-docker compose logs -f
-docker compose down
+docker compose down    # дані у volumes зберігаються
 ```
 
-Для повної перевірки застосунку використовуйте:
-
-```powershell
-dotnet build Platform.slnx --no-restore
-dotnet run --project Platform.AppHost/Platform.AppHost.csproj
-```
-
-Після старту перевірте `http://localhost:5000/health`, `http://localhost:5000/swagger` та один агрегований endpoint, наприклад `GET /api/aggregator/products/{productId}/overview`. Dashboard Aspire покаже стан ресурсів, health checks, логи й traces.
+Після цього сервіси можна запускати окремо (`dotnet run --project Services/Orders/Orders.Api
+--launch-profile http` тощо) — рядки підключення в `appsettings.json` ведуть на `localhost:1433` /
+`localhost:27017`. **Не запускайте Compose та Aspire одночасно**: вони використовують однакові імена
+контейнерів і volumes (`dotnet-web-sql-data`, `dotnet-web-mongo-data`, `dotnet-web-redis-data`),
+тому дані спільні для обох способів запуску й переживають перезапуск.
 
 ---
 
-## 8. Запуск
+## 2. Архітектура платформи
 
-### Через .NET Aspire
-```bash
-dotnet run --project Platform.AppHost/Platform.AppHost.csproj
+```mermaid
+graph TB
+    Client[Клієнт / curl / Swagger] --> GW["Platform.ApiGateway<br/>YARP, :5000"]
+    GW -->|/api/orders, /api/customers, /api/payments| ORD["Orders.Api<br/>EF Core"]
+    GW -->|/api/products| CAT["Catalog.Api<br/>EF Core"]
+    GW -->|/api/reviews, /api/product-ratings, /api/moderation| REV["Reviews.WebApi<br/>Clean Arch + CQRS"]
+    GW -->|/api/aggregator| AGG["Platform.Aggregator<br/>композитні відповіді"]
+    AGG -->|HTTP / gRPC| ORD
+    AGG -->|HTTP / gRPC| CAT
+    AGG -->|HTTP / gRPC| REV
+    ORD --> SQL[("SQL Server<br/>OrdersDb")]
+    CAT --> SQL2[("SQL Server<br/>CatalogDb")]
+    REV --> MONGO[("MongoDB<br/>BakeryReviewsDB")]
+    AGG --> REDIS[("Redis<br/>L2-кеш агрегатів")]
+    ORD --> REDIS
+    CAT --> REDIS
+    REV --> REDIS
+    HOST["Platform.AppHost<br/>.NET Aspire"] -.->|оркестрація, WaitFor| GW
+    HOST -.-> ORD
+    HOST -.-> CAT
+    HOST -.-> REV
+    HOST -.-> AGG
+    GW -.->|OTLP| DASH["Aspire Dashboard<br/>logs / traces / metrics"]
+    AGG -.->|OTLP| DASH
+    ORD -.->|OTLP| DASH
+    CAT -.->|OTLP| DASH
+    REV -.->|OTLP| DASH
 ```
-Aspire піднімає SQL Server у контейнері та API; адреса Aspire Dashboard і порти сервісів
-друкуються в консолі запуску.
 
-### Сервіс `Reviews` окремо
-```bash
-dotnet run --project Services/Reviews/Reviews.WebApi --launch-profile http
-```
-- HTTP: `http://localhost:5180`
-- HTTPS: `https://localhost:7280`
-- Swagger UI: `http://localhost:5180/swagger/index.html`, openapi: `/swagger/v1/swagger.json`
-- In-memory: MongoDB (`mongodb://localhost:27017`, див. п. 4.2) — на старті сервіс створює індекси
-  й ідемпотентно сієть демо-дані; якщо MongoDB недоступна, сервіс стартує, `/health` показує
-  `Unhealthy`, а запити отримують `503` у форматі ProblemDetails.
+Та сама діаграма лежить у `docs/overall_architecture.mermaid`.
+
+| Проєкт | Призначення |
+|---|---|
+| `Platform.AppHost` | Aspire-оркестрація: контейнери SQL/Mongo/Redis з `WithDataVolume`, secret-пароль SQL, бази `CatalogDb`/`OrdersDb`/`BakeryReviewsDB`, `WithReference` + `WaitFor`, фіксований порт Gateway |
+| `Platform.ServiceDefaults` | спільні Serilog, OpenTelemetry, health checks, service discovery, CorrelationId middleware і DelegatingHandler |
+| `Platform.ApiGateway` | YARP: маршрути й кластери за логічними іменами сервісів, логування маршрутизації |
+| `Platform.Aggregator` | паралельні downstream-виклики, композитні DTO, часткові відмови з попередженнями |
+| `Services/Catalog/*` | `.Api` / `.Bll` / `.Dal` / `.Domain`: товари, категорії, EF Core Code-First |
+| `Services/Orders/*` | `.Api` / `.Bll` / `.Dal` / `.Domain`: клієнти, замовлення, оплати, історія статусів, EF Core |
+| `Services/Reviews/*` | `.WebApi` / `.Application` / `.Infrastructure` / `.Domain`: Clean Architecture + CQRS (MediatR) + MongoDB |
+
+**Database-per-Service.** Кожен сервіс має власну базу; імена баз збігаються з іменами рядків
+підключення: `ConnectionStrings:CatalogDb`, `ConnectionStrings:OrdersDb`,
+`ConnectionStrings:BakeryReviewsDB`. Aspire підставляє їх через `WithReference(database)` як
+`ConnectionStrings__CatalogDb` тощо, тому `appsettings.json` містить лише локальний fallback.
+Між базами немає фізичних FOREIGN KEY: `OrderItem` зберігає знімок товару (`ProductId`, `ProductName`,
+`UnitPrice`), переданий у запиті створення замовлення, тож оформлення замовлення не читає Catalog.
+
+**Порядок запуску.** `WaitFor` задає ланцюг: бази → сервіси → Aggregator → Gateway. Сервіси додатково
+чекають Redis, а `EnableRetryOnFailure` у `AddDbContext` переживає холодний старт SQL-контейнера.
+
+### 2.1. Platform.ServiceDefaults
+
+`AddServiceDefaults(...)` підключає:
+
+- **OpenTelemetry**: інструментація ASP.NET Core, HttpClient, SqlClient і MongoDB (`DiagnosticSource`
+  через `MongoDbInstrumentation`), власні `ActivitySource` сервісів, `UseOtlpExporter()` за наявності
+  `OTEL_EXPORTER_OTLP_ENDPOINT` (Aspire Dashboard); metrics — runtime, ASP.NET Core, HttpClient,
+  SqlClient і Meter `Platform.Caching`.
+- **Health checks**: `/alive` (live) і `/health` (усі перевірки, зокрема MongoDB у Reviews) через
+  `MapDefaultEndpoints()`.
+- **Service discovery** + `ConfigureHttpClientDefaults` з `AddServiceDiscovery` і
+  `CorrelationIdPropagationHandler`.
+
+`UsePlatformSerilog(serviceName)` налаштовує Serilog: збагачувачі `ServiceName`, `Environment`,
+`MachineName`, `ThreadId`, `Enrich.FromLogContext()`, рівні за середовищем (Debug у Development,
+Information інакше) з override для шумних категорій, `CompactJsonFormatter` у console sink і
+`writeToProviders: true`, щоб логи йшли також в OpenTelemetry.
+
+`UsePlatformDefaults(serviceName)` ставить `CorrelationIdMiddleware` і `UseSerilogRequestLogging`
+(метод, шлях, статус, тривалість, `CorrelationId`).
+
+### 2.2. Наскрізний CorrelationId
+
+`CorrelationIdMiddleware` бере `X-Correlation-Id` із запиту або генерує новий, кладе його в
+`HttpContext.Items`, у відповідь і в `LogContext` (властивості `CorrelationId`, `CorrelationOrigin`,
+`UserId` з `X-User-Id`). Вихідні HTTP-запити отримують той самий заголовок через
+`CorrelationIdPropagationHandler` (`DelegatingHandler`, зареєстрований у
+`ConfigureHttpClientDefaults`), тому один ідентифікатор видно в логах Gateway, Aggregator і сервісу
+та в spans траси.
+
+### 2.3. API Gateway (YARP)
+
+Маршрути й кластери описані в `Platform.ApiGateway/appsettings.json`; адреси кластерів —
+`http://<ім'я-ресурсу>` і резолвляться через `AddServiceDiscoveryDestinationResolver()`.
+
+| Префікс Gateway | Кластер | Order |
+|---|---|---|
+| `/api/aggregator` | `aggregator` | 100 (окремий маршрут на Aggregator) |
+| `/api/orders`, `/api/customers`, `/api/payments` | `orders-api` | catch-all |
+| `/api/products` | `catalog-api` | catch-all |
+| `/api/reviews`, `/api/product-ratings`, `/api/moderation` | `reviews-api` | catch-all |
+
+Порядок middleware: `CorrelationIdMiddleware` → `UseSerilogRequestLogging` → `RouteLoggingMiddleware`
+→ `MapReverseProxy()`. `RouteLoggingMiddleware` після кожного запиту логує метод, шлях, `RouteId`,
+`ClusterId`, статус і тривалість у мілісекундах разом із `CorrelationId`; unmatched-запити та 4xx/5xx
+логуються як Warning/Error.
+
+### 2.4. Aggregator
+
+| Ендпоінт | Що збирає |
+|---|---|
+| `GET /api/aggregator/orders/{id}/full` | замовлення + клієнт + оплата + відгуки товарів замовлення |
+| `GET /api/aggregator/products/{id}/overview` | картка товару + рейтинг + відгуки |
+| `GET /api/aggregator/grpc/orders/{id}/full` | те саме через gRPC-клієнти (лабораторна №6) |
+
+Незалежні downstream-запити виконуються паралельно (`Task.WhenAll`). Кожен типізований `HttpClient`
+має явний `Timeout = 5 с` (`Platform.Aggregator/Program.cs`), тому недоступний сервіс не тягне за собою
+стандартні 100 с очікування. Якщо один із сервісів недоступний, Aggregator повертає **200 із частковим
+результатом і масивом `warnings`**, а не падає; критична відмова (замовлення не знайдено / Orders
+лежить) дає 404/503. Бізнес-операції та downstream-виклики мають власні spans
+(`AggregatorActivitySources`, `OrdersActivitySources`, `CatalogActivitySources`,
+`ReviewsActivitySources`).
 
 ---
 
-## 9. Приклади запитів
-
-### Lab 5: запити через API Gateway
-
-Після запуску `Platform.AppHost` усі запити Lab 5 виконуються через `http://localhost:5000`:
+## 3. Приклади запитів через Gateway (`http://localhost:5000`)
 
 ```bash
 # health Gateway
 curl http://localhost:5000/health
 
-# correlation ID проходить через Gateway до downstream-сервісу
-curl -H "X-Correlation-Id: demo-lab5" http://localhost:5000/api/products/category/1
+# CorrelationId проходить крізь Gateway у сервіс і повертається у відповіді
+curl -i -H "X-Correlation-Id: demo-lab5" http://localhost:5000/api/products/category/1
 
-# агрегований огляд товару
-curl http://localhost:5000/api/aggregator/products/1/overview
-
-# агрегована збірка замовлення
-curl http://localhost:5000/api/aggregator/orders/1/full
-```
-
-Для створення клієнта, замовлення або відгуку використовуйте відповідно префікси
-`/api/customers`, `/api/orders` і `/api/reviews`. Swagger Gateway доступний за адресою
-`http://localhost:5000/swagger`.
-
-### Попередні лабораторні
-
-1. **Створення клієнта (201 Created):**
-```bash
-curl -X POST http://localhost:5000/api/customers \
-  -H "Content-Type: application/json" \
-  -d '{
-    "firstName": "Оксана",
-    "lastName": "Бондар",
-    "email": "oksana.bondar@example.com",
-    "phoneNumber": "0981122334",
-    "gender": "F",
-    "age": 26
-  }'
-```
-
-2. **Список клієнтів (200 OK):**
-```bash
+# клієнти та замовлення
 curl http://localhost:5000/api/customers
+curl -X POST http://localhost:5000/api/customers -H "Content-Type: application/json" \
+  -d '{"firstName":"Оксана","lastName":"Бондар","email":"oksana.bondar@example.com","phoneNumber":"0981122334","gender":"F","age":26}'
+curl -X POST http://localhost:5000/api/orders -H "Content-Type: application/json" \
+  -d '{"customerId":1,"items":[{"productId":1,"productName":"Круасан масляний","unitPrice":45.0,"quantity":2}],"notes":"еко-пакет"}'
+curl http://localhost:5000/api/orders/1
+curl http://localhost:5000/api/orders/1/history
+curl -X POST http://localhost:5000/api/payments -H "Content-Type: application/json" \
+  -d '{"orderId":1,"paymentMethod":"ApplePay","amount":90.00}'
+
+# відгуки й модерація
+curl "http://localhost:5000/api/reviews?limit=2"
+curl http://localhost:5000/api/product-ratings/1
+curl "http://localhost:5000/api/moderation/logs?limit=5"
+
+# композитні відповіді Aggregator
+curl http://localhost:5000/api/aggregator/products/1/overview
+curl http://localhost:5000/api/aggregator/orders/1/full
+curl http://localhost:5000/api/aggregator/grpc/orders/1/full   # лаба №6: поки що 500, див. §4
 ```
 
-3. **Оформлення замовлення (201 Created, знімок ціни з БД):**
-```bash
-curl -X POST http://localhost:5000/api/orders \
-  -H "Content-Type: application/json" \
-  -d '{
-    "customerId": 1,
-    "items": [
-      { "productId": 1, "quantity": 2 },
-      { "productId": 3, "quantity": 1 }
-    ],
-    "notes": "Прохання упакувати в еко-пакет"
-  }'
-```
+Swagger кожного сервісу доступний через його власний порт (напр. `http://localhost:5173/swagger`
+при окремому запуску); Gateway проксіює лише API-маршрути.
 
-4. **Замовлення з деталями (eager loading):**
-```bash
-curl http://localhost:5172/api/v1/orders/1
-```
+### 3.1. Перевірка часткової відмови (failure drill)
 
-5. **Пагінація + фільтр + сортування:**
-```bash
-curl "http://localhost:5172/api/v1/orders/customer/1?page=1&pageSize=5&sortBy=totalAmount&desc=false"
-```
+1. Зупиніть `reviews-api`: у Aspire Dashboard кнопка **Stop** на ресурсі, або завершіть процес
+   (`taskkill /PID <pid> /T /F` для `dotnet run … Reviews.WebApi.csproj`).
+2. Візьміть товар, який ще не агрегувався (кеш агрегатів живе 45 с і може віддати попередню повну
+   відповідь): `curl http://localhost:5000/api/aggregator/products/3/overview`.
+3. Очікуваний результат — **200** приблизно за 5 с, картка товару заповнена, `reviews: []`,
+   рейтинг відсутній, три попередження:
 
-6. **Оплата замовлення (201 Created; сума має дорівнювати `totalAmount`):**
-```bash
-curl -X POST http://localhost:5172/api/v1/payments \
-  -H "Content-Type: application/json" \
-  -d '{ "orderId": 1, "paymentMethod": "ApplePay", "amount": 280.00 }'
-```
-Повторна оплата того ж замовлення → `409 Conflict`.
+   ```json
+   {
+     "productId": 3,
+     "product": { "productId": 3, "name": "Чізкейк Сан-Себастьян", "categories": ["Хліб", "Випічка"] },
+     "reviews": [],
+     "warnings": [
+       "«рейтингу товару 3» недоступний: таймаут вичерпано",
+       "«схвалених відгуків товару 3» недоступний: таймаут вичерпано",
+       "«найкращих відгуків товару 3» недоступний: таймаут вичерпано"
+     ],
+     "downstreamCalls": 3,
+     "assemblyDurationMilliseconds": 5104.25
+   }
+   ```
 
-7. **Зміна статусу (State Machine; недозволений перехід → 409):**
-```bash
-curl -X PATCH http://localhost:5172/api/v1/orders/1/status \
-  -H "Content-Type: application/json" \
-  -d '{ "newStatus": "Baking" }'
-```
+4. Запустіть `reviews-api` знову (Dashboard **Start** або перезапуск AppHost) — наступний запит
+   повертає повну відповідь без попереджень.
 
-8. **Перевірка ProblemDetails (404):**
-```bash
-curl http://localhost:5172/api/v1/orders/99999
-```
+Те саме для `catalog-api`: огляд товару деградує до даних Reviews/Orders із попередженням.
+Якщо товар не існує, відповідь — **404 ProblemDetails** з `correlationId` і `traceId` (перевірено:
+`/api/aggregator/products/4/overview` → 404 «Товар не знайдено» за 0.14 с).
 
-9. **Передача CorrelationId у логи:**
-```bash
-curl -H "X-Correlation-Id: demo-123" http://localhost:5172/api/v1/customers
-```
+### 3.2. Бізнес-правила попередніх лабораторій (ті самі ендпоінти через Gateway)
 
-10. **Історія статусів (explicit loading, `Collection(...).LoadAsync`):**
 ```bash
-curl http://localhost:5172/api/v1/orders/1/history
-```
-
-11. **Товари категорії через проміжну сутність M:N + фільтр за `AddedAt`:**
-```bash
-curl "http://localhost:5172/api/v1/products/category/1"
-curl "http://localhost:5172/api/v1/products/category/1?notEarlierThan=2030-01-01T00:00:00Z"
-```
-Без фільтра — дві позиції категорії з `productName`, `price`, `categoryName`, `addedAt`; з фільтром у
-майбутнє — `[]`, бо `AddedAt` у посіяних зв'язків теперішній.
-
-12. **Валідація, яку не дає жоден атрибут DTO (400 `ValidationProblemDetails`):**
-```bash
-curl -X POST http://localhost:5172/api/v1/orders -H "Content-Type: application/json" \
-  -d '{ "customerId": 1, "items": [ { "productId": 1, "quantity": 2 }, { "productId": 1, "quantity": 3 } ] }'
-```
-Один товар у двох рядках — правило лише у `CreateOrderRequestValidator`, тому помилка приходить
-з BLL, а не з ModelState: `errors.Items` + `title`/`type` `ValidationProblemDetails`.
-
-### Сервіс `Reviews` (лабораторна №4, порт 5180)
-
-13. **Сторінка відгуків з фільтрами і курсором:**
-```bash
-curl "http://localhost:5180/api/v1/reviews?status=Approved&sort=AverageRating&descending=true&limit=2"
-curl "http://localhost:5180/api/v1/reviews?limit=2&cursor=4670_6aec7023122bc1ce1aa0aab8"
-```
-
-14. **ETag → оновлення (200) і повторна спроба зі старим ETag (409):**
-```bash
-curl -i http://localhost:5180/api/v1/reviews/<id>          # ETag: W/"1"
-curl -X PUT http://localhost:5180/api/v1/reviews/<id> -H 'If-Match: W/"1"' \
-  -H "Content-Type: application/json" \
-  -d '{ "comment": "Оновлений текст відгуку", "taste": 5, "freshness": 4, "aroma": 5, "tags": ["хрусткий"] }'
-curl -X PUT http://localhost:5180/api/v1/reviews/<id> -H 'If-Match: W/"1"' \
-  -H "Content-Type: application/json" -d '{ "comment": "Стара версія", "taste": 1, "freshness": 1, "aroma": 1 }'
-```
-
-15. **Модерація в транзакції (відгук + журнал + перерахунок рейтингу):**
-```bash
-curl -X POST http://localhost:5180/api/v1/moderation/reviews/<id> \
-  -H "Content-Type: application/json" \
-  -d '{ "action": "Approved", "moderator": "admin_olya", "notes": "Правила не порушено" }'
-curl "http://localhost:5180/api/v1/moderation/logs?limit=5"
-```
-
-16. **Денормалізація та повнотекстовий пошук:**
-```bash
-curl -X PUT http://localhost:5180/api/v1/reviews/by-product/1 -H "Content-Type: application/json" \
-  -d '{ "newProductName": "Круасан масляний преміум" }'
-curl "http://localhost:5180/api/v1/reviews/search?text=%D0%BA%D1%80%D1%83%D0%B0%D1%81%D0%B0%D0%BD"
-```
-
-17. **Валідація запиту (400 із словником помилок по полях):**
-```bash
-curl "http://localhost:5180/api/v1/reviews?limit=101"
-curl "http://localhost:5180/api/v1/reviews?cursor=garbage"
+# пагінація + фільтр + сортування замовлень клієнта
+curl "http://localhost:5000/api/orders/customer/1?page=1&pageSize=5&sortBy=totalAmount&desc=false"
+# недозволений перехід статусу → 409; повторна оплата → 409
+curl -X PATCH http://localhost:5000/api/orders/1/status -H "Content-Type: application/json" -d '{"newStatus":"Baking"}'
+# один товар у двох рядках → 400 ValidationProblemDetails (правило лише у FluentValidation)
+curl -X POST http://localhost:5000/api/orders -H "Content-Type: application/json" \
+  -d '{"customerId":1,"items":[{"productId":1,"productName":"Круасан","unitPrice":45.0,"quantity":2},{"productId":1,"productName":"Круасан","unitPrice":45.0,"quantity":3}]}'
+# M:N категорії з фільтром за AddedAt
+curl "http://localhost:5000/api/products/category/1?notEarlierThan=2030-01-01T00:00:00Z"
+# ETag / If-Match: оновлення зі старим ETag → 409
+curl -i http://localhost:5000/api/reviews/<id>
+curl -X PUT http://localhost:5000/api/reviews/<id> -H 'If-Match: W/"1"' -H "Content-Type: application/json" \
+  -d '{"comment":"Оновлений текст","taste":5,"freshness":4,"aroma":5,"tags":["хрусткий"]}'
+# модерація в транзакції MongoDB
+curl -X POST http://localhost:5000/api/moderation/reviews/<id> -H "Content-Type: application/json" \
+  -d '{"action":"Approved","moderator":"admin_olya","notes":"Правила не порушено"}'
 ```
 
 ---
 
-## 10. Статус лабораторних
+## 4. Лабораторна №6: gRPC та дворівневе кешування
+
+Redis додається в AppHost через `AddRedis("redis").WithDataVolume("dotnet-web-redis-data")`; сервіси й
+Aggregator отримують його через `WithReference(redis)` + `AddRedisDistributedCache("redis")`.
+
+- **L1** — `IMemoryCache` у `Caching/` кожного сервісу (`SizeLimit = 10_000`, sliding/absolute
+  expiration, cache-aside). **L2** — Redis через `IDistributedCache`; DTO серіалізуються
+  `System.Text.Json`, ключі з префіксами сервісів (`CacheKeys`), після запису пов'язані ключі
+  інвалідуються синхронно.
+- Aggregator кешує повні відповіді в Redis на 45 с і **не кешує** часткові результати з попередженнями.
+- Контракти: `Protos/catalog.proto`, `Protos/orders.proto`, `Protos/reviews.proto` у кожному сервісі;
+  сервери — `Grpc/*GrpcService.cs` (адаптери над BLL/`ISender`, `InvalidArgument`/`NotFound` замість
+  `Internal`), реєстрація `AddGrpc` + `MapGrpcService`. Клієнти Aggregator — типізовані `AddGrpcClient`
+  з service discovery і `GrpcClientLoggingInterceptor`; незалежні виклики паралельні, `Unavailable` /
+  `DeadlineExceeded` перетворюються на частковий результат або 503.
+- Метрики кешу: Meter `Platform.Caching`, лічильники `cache.hits` / `cache.misses` (`CacheMetrics`).
+- В Aggregator уже стоїть `AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true)`.
+
+**Відомий gap лабораторної №6 (ще не закрито).** `GET /api/aggregator/grpc/orders/{id}/full`
+зараз віддає **500**. Дві причини, обидві підтверджені логами процесів:
+
+1. `GrpcChannel.ForAddress` не резолвить схему `https+http://` — у
+   `Microsoft.Extensions.ServiceDiscovery` 10.7.0 немає gRPC-інтеграції
+   (`InvalidOperationException: No address resolver configured for the scheme 'https+http'`).
+2. Kestrel без TLS не вмикає HTTP/2 на ендпоінті з `Http1AndHttp2`:
+   «HTTP/2 is not enabled … Connections to this endpoint will use HTTP/1.1», тобто h2c фактично не працює.
+
+План виправлення: окремий HTTP/2-only plaintext ендпоінт для gRPC у кожному сервісі та адресація
+gRPC-клієнтів через `IHttpClientFactory` із service discovery замість `https+http`.
+REST-агрегати (§2.4) працюють і перевірені на живій платформі.
+
+---
+
+## 5. Сервіси та дані
+
+### 5.1. Catalog (EF Core)
+
+Шари `.Domain` → `.Dal` → `.Bll` → `.Api`. `CatalogDbContext` + `IEntityTypeConfiguration<T>`,
+`GenericRepository<T>` зі специфікаціями (`WithSpecification` віддає `IQueryable<T>`), `UnitOfWork`,
+AutoMapper, FluentValidation у BLL. Ендпоінти: `GET /api/products/{id}` (картка товару),
+`GET /api/products/category/{categoryId}?notEarlierThan=` (M:N `ProductCategory` з фільтром `AddedAt`).
+
+### 5.2. Orders (EF Core)
+
+Ті самі шари; сутності `Customers`, `Orders`, `OrderItems`, `Payments`, `OrderStatusHistories`.
+`OrderItem` — знімок товару, без навігації в Catalog. Ендпоінти: `/api/customers` (CRUD),
+`/api/orders` (CRUD + `customer/{id}` пагінація + `{id}/history` explicit loading + `{id}/status`
+state machine + `{id}/cancel`), `/api/payments` (`POST`, `GET order/{orderId}`).
+
+### 5.3. Reviews (Clean Architecture + CQRS + MongoDB)
+
+| Проєкт | Що покладено |
+|---|---|
+| `Reviews.Domain` | сутності `Review`/`ProductRating`/`ModerationLog`, незмінні VO, доменні винятки, інтерфейси репозиторіїв |
+| `Reviews.Application` | команди/queries через MediatR, конвеєр біхавіорів `ExceptionHandling → Validation → Logging → Caching → Performance`, валідатори, `AddApplication()` |
+| `Reviews.Infrastructure` | `MongoDbContext`, `BsonClassMap` + конвенції, репозиторії, транзакції, індекси, ідемпотентний сід, health check |
+| `Reviews.WebApi` | тонкі контролери (`ISender.Send`), ETag/If-Match, ProblemDetails, Swagger |
+
+Колекції `reviews`, `product_ratings`, `moderation_logs`; денормалізований `averageRating`,
+cursor-пагінація на боці MongoDB, optimistic concurrency через `version` → ETag `W/"n"`,
+модерація й видалення — в транзакції репліка-сету.
+
+### 5.4. ERD
+
+```mermaid
+erDiagram
+    Customers ||--o{ Orders : "places (1:N)"
+    Orders ||--|{ OrderItems : "contains (1:N)"
+    Orders ||--|| Payments : "has (1:1)"
+    Orders ||--o{ OrderStatusHistory : "audit (1:N)"
+    Products ||--o{ OrderItems : "snapshot (1:N)"
+    Products ||--|| ProductDetails : "details (1:1)"
+    Products ||--o{ ProductImages : "images (1:N)"
+    Products ||--|{ ProductCategories : "has (1:N)"
+    Categories ||--|{ ProductCategories : "groups (1:N)"
+```
+
+`OrdersDb`: `Customers`, `Orders`, `OrderItems` (знімок `ProductName`/`UnitPrice`), `Payments`,
+`OrderStatusHistory`. `CatalogDb`: `Products`, `Categories`, `ProductCategories` (`AddedAt`),
+`ProductDetails`, `ProductImages`. `BakeryReviewsDB`: документні колекції з §5.3.
+
+### 5.5. Міграції та сід
+
+```bash
+dotnet ef migrations add <Name> --project Services/Catalog/Catalog.Dal --startup-project Services/Catalog/Catalog.Api
+dotnet ef migrations add <Name> --project Services/Orders/Orders.Dal --startup-project Services/Orders/Orders.Api
+dotnet ef database update --project Services/Orders/Orders.Dal --startup-project Services/Orders/Orders.Api
+```
+
+Міграції застосовуються автоматично при старті (`MigrateAsync`), у Development далі виконується
+ідемпотентний сід. Якщо в базі лишилася схема лабораторних 1–2 без `__EFMigrationsHistory`, сервіс
+кидає зрозуміле повідомлення з командою `dotnet ef database drop -f ...` (захист у `Program.cs`).
+
+### 5.6. Скрипти лабораторної №1
+
+```text
+db/
+├── p1/    # Orders: schema.sql · procedures.sql · seed.sql
+├── p2/    # Catalog: schema.sql · seed.sql
+└── p3/    # MongoDB: collections.js · seed.js
+```
+
+MongoDB для транзакцій потрібен як одно-вузловий репліка-сет `rs0` (`mongod --replSet rs0` +
+`rs.initiate()`); від лабораторної №4 індекси й сід виконує сам сервіс (`MongoIndexInitializer`,
+`MongoDataSeeder`), тому ручні скрипти не обов'язкові.
+
+---
+
+## 6. Відповідність критеріям лабораторної №5
+
+| Критерій | Де в коді |
+|---|---|
+| Контейнери SQL/Mongo з постійним сховищем, пароль-секрет, імена баз = рядки підключення | `Platform.AppHost/Program.cs` (`AddParameter(secret: true)`, `WithDataVolume`, `AddDatabase`), `docker-compose.yml`, `appsettings.json` сервісів |
+| `WithReference` + `WaitFor`, порядок БД → сервіси → Aggregator → Gateway, фіксований порт Gateway | `Platform.AppHost/Program.cs` |
+| `AddServiceDefaults` + `MapDefaultEndpoints`, рядки з конфігурації, `/api/{domain}` | `Program.cs` трьох сервісів, контролери з `[Route("api/...")]` |
+| Бізнес-логи та власні spans | `*/Diagnostics/*ActivitySources.cs`, `Log.Information` з `OrderId`/`Status` у сервісах і Aggregator |
+| Serilog: збагачувачі, `FromLogContext`, рівні за середовищем, `CompactJsonFormatter`, `writeToProviders` | `Platform.ServiceDefaults/Extensions.cs` (`UsePlatformSerilog`) |
+| CorrelationId: middleware + вихідний DelegatingHandler | `Platform.ServiceDefaults/CorrelationIdMiddleware.cs`, `CorrelationIdPropagationHandler.cs`, реєстрація в `ConfigureHttpClientDefaults` |
+| OTel: HTTP, SQL, MongoDB + OTLP | `Platform.ServiceDefaults/Extensions.cs` (`ConfigureOpenTelemetry`), `MongoDbInstrumentation.cs` |
+| YARP маршрути/кластери з логічними іменами, service discovery resolver | `Platform.ApiGateway/appsettings.json`, `Program.cs` |
+| CorrelationId перед `MapReverseProxy`, логи метод/шлях/маршрут/статус/тривалість | `Platform.ApiGateway/Program.cs`, `RouteLoggingMiddleware.cs` |
+| Aggregator: паралельні виклики, часткові відмови, попередження | `Platform.Aggregator/Services/*`, `Clients/DownstreamClient.cs`, `Controllers/AggregationController.cs` |
+| Таймаут downstream-викликів 5 с → деградація за 5 с, а не 100 с | `Platform.Aggregator/Program.cs` (`client.Timeout`) |
+| README з інструкцією запуску | цей файл, §1 і §3 |
+
+**Перевірено на живій платформі** (Aspire + Docker, gateway `:5000`):
+
+- `/health` → 200; картка `/api/products/1` → `productId: 1`, `categories: ["Випічка","Десерти"]`.
+- Наскрізний `X-Correlation-Id: lab6-e2e` видно в логах усіх п'яти процесів: Gateway, Aggregator,
+  Catalog.Api, Orders.Api, Reviews.WebApi.
+- Бізнес-логи повертаються з `SourceContext` сервісу: `OrderService` («Створено замовлення…»),
+  `PaymentService` («Оплата … проведена…»), `CreateReviewCommandHandler` («Відгук … створено…»),
+  `ProductService` («Каталог: товар …»).
+- Записи крізь Gateway: `POST /api/orders` → 201 (total 90.00), `POST /api/payments` → 201,
+  `POST /api/reviews` → 201; повторний відгук того самого клієнта на той самий товар → 400.
+- Failure drill: `reviews-api` зупинено → огляд товару **200 + 3 warnings за 5.1 с** (§3.1).
+- Дані переживають перезапуск AppHost: замовлення 2 і 3 у SQL, відгук у MongoDB лишаються на місці
+  (`WithDataVolume`).
+- `dotnet build Platform.slnx` → 0 помилок, 7 відомих warning (NU1903/NU1904, ASPIRE010).
+
+---
+
+## 7. Додаток: рішення лабораторних №2–4
+
+- **Specification pattern**: `CustomerOrdersSpecification` + `SpecificationEvaluator`;
+  `GenericRepository.WithSpecification(spec, applyPaging)` віддає `IQueryable<T>` для власного LINQ.
+- **Пагінація**: `page`, `pageSize` (1…100), `status`, `sortBy` (`orderDate|totalAmount|status`),
+  `desc`; відповідь `items/page/pageSize/totalCount/totalPages/hasNext/hasPrevious`.
+- **Валідація у два рівні**: DataAnnotations на DTO (ModelState) + FluentValidation у BLL через
+  `IValidator<T>` у конструкторі сервісу і `ValidateAndThrowAsync` (без auto-validation); помилки —
+  `400 ValidationProblemDetails`.
+- **Єдина обробка помилок**: `GlobalExceptionHandlerMiddleware` → `NotFoundException` 404,
+  `BusinessConflictException`/`DbUpdateConcurrencyException` 409, валідація 400, інші 500.
+- **Reviews**: мапінг без атрибутів у домені, інкапсульовані VO, денормалізований `averageRating`,
+  cursor-пагінація `{sortValue}_{hexId24}`, ETag/If-Match, транзакції модерації, `CachingBehavior`
+  для `ICacheableQuery`.
+- **Чистота збірки**: `dotnet build Platform.slnx` — 0 помилок; лишаються лише відомі NuGet-застереження
+  щодо Aspire 13.6.4 (NU1903/NU1904) та інформаційне ASPIRE010; `<NoWarn` у проєктах немає.
+
+---
+
+## 8. Статус лабораторних
 
 | Лаба | Тема | Стан |
 |---|---|---|
 | №1 | Проєктування БД (3 контексти, SQL + MongoDB) | виконано |
-| №2 | Тришарова архітектура на ADO.NET/Dapper | виконано (гілка `lab-02`) |
-| №3 | Тришарова архітектура на EF Core, Code-First, специфікації | виконано (гілка `lab-03`); доопрацювання — специфікація як `IQueryable` (`WithSpecification`), explicit loading колекцій, LINQ над M:N із фільтром `AddedAt`, явні `IValidator` у BLL замість авто-валідації — у `lab-04` |
-| №4 | Чиста архітектура + CQRS (MediatR) + MongoDB для сервісу `Reviews` | поточна гілка `lab-04` |
+| №2 | Тришарова архітектура на ADO.NET/Dapper | виконано (`lab-02`) |
+| №3 | EF Core Code-First, специфікації, валідація | виконано (`lab-03`, доопрацювання в `lab-04`) |
+| №4 | Clean Architecture + CQRS + MongoDB (Reviews) | виконано (`lab-04`) |
+| №5 | Мікросервісна платформа: AppHost, ServiceDefaults, Gateway, Aggregator | здано (`lab-05`) |
+| №6 | gRPC + дворівневе кешування Memory/Redis | у роботі (`lab-06`) |
 
-### Корисні команди
+## 9. Корисні команди
 
 ```bash
 dotnet build Platform.slnx
-dotnet ef migrations list --project Services/Bakery/Bakery.Dal --startup-project Services/Bakery/Bakery.Api
+dotnet run --project Platform.AppHost
+dotnet user-secrets list --project Platform.AppHost
+docker compose up -d && docker compose ps
+docker volume ls | grep dotnet-web
 ```
