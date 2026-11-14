@@ -67,7 +67,8 @@ public static class Extensions
                 .AddRuntimeInstrumentation()
                 .AddAspNetCoreInstrumentation()
                 .AddHttpClientInstrumentation()
-                .AddSqlClientInstrumentation())
+                .AddSqlClientInstrumentation()
+                .AddMeter("Platform.Caching"))
             .WithTracing(tracing =>
             {
                 tracing.AddAspNetCoreInstrumentation(options => options.Filter = IsHealthRequest)

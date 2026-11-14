@@ -1,3 +1,4 @@
+using Bakery.Reviews.Application.Caching;
 using Bakery.Reviews.Application.Common;
 using Bakery.Reviews.Application.DTOs;
 using Bakery.Reviews.Domain.Enums;
@@ -6,7 +7,7 @@ using MediatR;
 
 namespace Bakery.Reviews.Application.Queries;
 
-public sealed record GetReviewsQuery : IQuery<ReviewPageDto>
+public sealed record GetReviewsQuery : IQuery<ReviewPageDto>, ICacheableQuery
 {
     public int? ProductId { get; init; }
 
@@ -25,6 +26,12 @@ public sealed record GetReviewsQuery : IQuery<ReviewPageDto>
     public string? Cursor { get; init; }
 
     public int Limit { get; init; } = 20;
+
+    public string CacheKey => ProductId.HasValue && Cursor is null && Status is null
+        ? CacheKeys.ProductReviews(ProductId.Value)
+        : string.Empty;
+
+    public TimeSpan Ttl => TimeSpan.FromMinutes(2);
 }
 
 public sealed class GetReviewsQueryHandler(IReviewQueries queries) : IRequestHandler<GetReviewsQuery, ReviewPageDto>

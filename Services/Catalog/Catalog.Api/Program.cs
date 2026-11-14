@@ -1,4 +1,5 @@
 using Catalog.API.Middleware;
+using Catalog.BLL.Caching;
 using Catalog.BLL.Diagnostics;
 using Catalog.BLL.Interfaces;
 using Catalog.BLL.Mapping;
@@ -20,6 +21,11 @@ builder.Services.AddDbContext<CatalogDbContext>(options => options
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 builder.Services.AddScoped<IProductService, ProductService>();
 builder.Services.AddAutoMapper(cfg => cfg.AddMaps(typeof(MappingProfile).Assembly));
+
+builder.Services.AddMemoryCache(options => options.SizeLimit = 10_000);
+builder.AddRedisDistributedCache("redis");
+builder.Services.AddSingleton<ICacheService, TwoLevelCacheService>();
+
 builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
 builder.Services.AddEndpointsApiExplorer();

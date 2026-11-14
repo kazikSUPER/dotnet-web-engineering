@@ -1,6 +1,7 @@
 using AutoMapper;
 using FluentValidation;
 using Microsoft.Extensions.Logging;
+using Orders.BLL.Caching;
 using Orders.BLL.Diagnostics;
 using Orders.BLL.DTOs.Orders;
 using Orders.BLL.Interfaces;
@@ -15,17 +16,28 @@ namespace Orders.BLL.Services;
 public class OrderService(
     IUnitOfWork uow,
     IMapper mapper,
+    ICacheService cache,
     IValidator<CreateOrderRequest> createValidator,
     IValidator<UpdateOrderStatusRequest> statusValidator,
     ILogger<OrderService> logger) : IOrderService
 {
-    public async Task<OrderResponseDto?> GetByIdAsync(int id, CancellationToken ct = default) => mapper.Map<OrderResponseDto>(await uow.Orders.GetWithDetailsAsync(id, ct));
+    public async Task<OrderResponseDto?> GetByIdAsync(int id, CancellationToken ct = default) => await cache.GetOrCreateAsync(
+        CacheKeys.Order(id),
+        async token => mapper.Map<OrderResponseDto?>(await uow.Orders.GetWithDetailsAsync(id, token)),
+        l1Ttl: TimeSpan.FromMinutes(2),
+        l2Ttl: TimeSpan.FromMinutes(5),
+        ct);
 
-    public async Task<IReadOnlyList<OrderStatusHistoryDto>> GetStatusHistoryAsync(int id, CancellationToken ct = default)
-    {
-        var order = await uow.Orders.GetWithExplicitStatusHistoryAsync(id, ct) ?? throw new NotFoundException(nameof(Order), id);
-        return mapper.Map<List<OrderStatusHistoryDto>>(order.StatusHistory.OrderBy(x => x.ChangedAt).ToList());
-    }
+    public async Task<IReadOnlyList<OrderStatusHistoryDto>> GetStatusHistoryAsync(int id, CancellationToken ct = default) => await cache.GetOrCreateAsync(
+        CacheKeys.OrderHistory(id),
+        async token =>
+        {
+            var order = await uow.Orders.GetWithExplicitStatusHistoryAsync(id, token) ?? throw new NotFoundException(nameof(Order), id);
+            return mapper.Map<List<OrderStatusHistoryDto>>(order.StatusHistory.OrderBy(x => x.ChangedAt).ToList());
+        },
+        l1Ttl: TimeSpan.FromMinutes(2),
+        l2Ttl: TimeSpan.FromMinutes(5),
+        ct);
 
     public async Task<PagedResponse<OrderResponseDto>> GetByCustomerIdAsync(int customerId, OrderQuery query, CancellationToken ct = default)
     {
@@ -81,6 +93,11 @@ public class OrderService(
         logger.LogInformation(
             "Замовлення {OrderId} змінило статус {PreviousStatus} → {Status}",
             order.Id, previousStatus, order.Status);
+
+        var reason = $"order-status:{request.NewStatus}";
+        await cache.RemoveAsync(CacheKeys.Order(id), reason, ct);
+        await cache.RemoveAsync(CacheKeys.OrderHistory(id), reason, ct);
+        await cache.RemoveAsync(CacheKeys.AggregateOrderFull(id), reason, ct);
     }
 
     public Task CancelAsync(int id, CancellationToken ct = default) => UpdateStatusAsync(id, new UpdateOrderStatusRequest { NewStatus = "Cancelled" }, ct);

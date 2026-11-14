@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Bakery.Reviews.Application;
+using Bakery.Reviews.Application.Caching;
 using Bakery.Reviews.Application.Diagnostics;
 using Bakery.Reviews.Infrastructure;
 using Bakery.Reviews.Infrastructure.Health;
@@ -17,6 +18,9 @@ builder.AddServiceDefaults(ReviewsActivitySources.SourceNames);
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
+
+builder.AddRedisDistributedCache("redis");
+builder.Services.AddSingleton<ICacheService, TwoLevelCacheService>();
 
 builder.Services.AddControllers(options => options.SuppressImplicitRequiredAttributeForNonNullableReferenceTypes = true)
     .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));

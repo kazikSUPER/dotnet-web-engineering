@@ -1,4 +1,5 @@
 using AutoMapper;
+using Orders.BLL.Caching;
 using Orders.BLL.DTOs.Customers;
 using Orders.BLL.Interfaces;
 using Orders.DAL.Interfaces;
@@ -8,10 +9,21 @@ using FluentValidation;
 
 namespace Orders.BLL.Services;
 
-public class CustomerService(IUnitOfWork uow, IMapper mapper, IValidator<CreateCustomerRequest> createValidator, IValidator<UpdateCustomerRequest> updateValidator) : ICustomerService
+public class CustomerService(IUnitOfWork uow, IMapper mapper, ICacheService cache, IValidator<CreateCustomerRequest> createValidator, IValidator<UpdateCustomerRequest> updateValidator) : ICustomerService
 {
-    public async Task<CustomerResponseDto?> GetByIdAsync(int id, CancellationToken ct = default) => mapper.Map<CustomerResponseDto>(await uow.Customers.GetByIdAsync(id, ct));
-    public async Task<IReadOnlyList<CustomerResponseDto>> GetAllAsync(CancellationToken ct = default) => mapper.Map<IReadOnlyList<CustomerResponseDto>>(await uow.Customers.GetAllAsync(ct));
+    public async Task<CustomerResponseDto?> GetByIdAsync(int id, CancellationToken ct = default) => await cache.GetOrCreateAsync(
+        CacheKeys.Customer(id),
+        async token => mapper.Map<CustomerResponseDto?>(await uow.Customers.GetByIdAsync(id, token)),
+        l1Ttl: TimeSpan.FromMinutes(2),
+        l2Ttl: TimeSpan.FromMinutes(5),
+        ct);
+
+    public async Task<IReadOnlyList<CustomerResponseDto>> GetAllAsync(CancellationToken ct = default) => await cache.GetOrCreateAsync(
+        CacheKeys.CustomersList(),
+        async token => mapper.Map<List<CustomerResponseDto>>(await uow.Customers.GetAllAsync(token)),
+        l1Ttl: TimeSpan.FromMinutes(1),
+        l2Ttl: TimeSpan.FromMinutes(2),
+        ct);
 
     public async Task<CustomerResponseDto> CreateAsync(CreateCustomerRequest request, CancellationToken ct = default)
     {
@@ -20,6 +32,7 @@ public class CustomerService(IUnitOfWork uow, IMapper mapper, IValidator<CreateC
         var customer = new Customer(request.FirstName, request.LastName, request.Email, request.PhoneNumber, request.Gender, request.Age);
         await uow.Customers.AddAsync(customer, ct);
         await uow.SaveChangesAsync(ct);
+        await cache.RemoveAsync(CacheKeys.CustomersList(), "customer-created", ct);
         return mapper.Map<CustomerResponseDto>(customer);
     }
 
@@ -32,6 +45,8 @@ public class CustomerService(IUnitOfWork uow, IMapper mapper, IValidator<CreateC
         customer.Update(request.FirstName, request.LastName, request.Email, request.PhoneNumber, request.Age);
         uow.Customers.Update(customer);
         await uow.SaveChangesAsync(ct);
+        await cache.RemoveAsync(CacheKeys.Customer(id), "customer-updated", ct);
+        await cache.RemoveAsync(CacheKeys.CustomersList(), "customer-updated", ct);
     }
 
     public async Task DeleteAsync(int id, CancellationToken ct = default)
@@ -40,5 +55,7 @@ public class CustomerService(IUnitOfWork uow, IMapper mapper, IValidator<CreateC
         customer.Delete();
         uow.Customers.Update(customer);
         await uow.SaveChangesAsync(ct);
+        await cache.RemoveAsync(CacheKeys.Customer(id), "customer-deleted", ct);
+        await cache.RemoveAsync(CacheKeys.CustomersList(), "customer-deleted", ct);
     }
 }

@@ -1,6 +1,7 @@
 using AutoMapper;
 using FluentValidation;
 using Microsoft.Extensions.Logging;
+using Orders.BLL.Caching;
 using Orders.BLL.Diagnostics;
 using Orders.BLL.DTOs.Payments;
 using Orders.BLL.Interfaces;
@@ -15,10 +16,16 @@ namespace Orders.BLL.Services;
 public class PaymentService(
     IUnitOfWork uow,
     IMapper mapper,
+    ICacheService cache,
     IValidator<ProcessPaymentRequest> processValidator,
     ILogger<PaymentService> logger) : IPaymentService
 {
-    public async Task<PaymentResponseDto?> GetByOrderIdAsync(int orderId, CancellationToken ct = default) => mapper.Map<PaymentResponseDto>(await uow.Payments.GetByOrderIdAsync(orderId, ct));
+    public async Task<PaymentResponseDto?> GetByOrderIdAsync(int orderId, CancellationToken ct = default) => await cache.GetOrCreateAsync(
+        CacheKeys.PaymentByOrder(orderId),
+        async token => mapper.Map<PaymentResponseDto?>(await uow.Payments.GetByOrderIdAsync(orderId, token)),
+        l1Ttl: TimeSpan.FromMinutes(2),
+        l2Ttl: TimeSpan.FromMinutes(5),
+        ct);
 
     public async Task<PaymentResponseDto> ProcessAsync(ProcessPaymentRequest request, CancellationToken ct = default)
     {
@@ -44,6 +51,11 @@ public class PaymentService(
         logger.LogInformation(
             "Оплата {TransactionNumber} проведена для замовлення {OrderId}: сума {Amount}, спосіб {PaymentMethod}, статус замовлення {Status}",
             payment.TransactionNumber, order.Id, payment.Amount, payment.PaymentMethod, order.Status);
+
+        const string reason = "order-paid";
+        await cache.RemoveAsync(CacheKeys.Order(order.Id), reason, ct);
+        await cache.RemoveAsync(CacheKeys.PaymentByOrder(order.Id), reason, ct);
+        await cache.RemoveAsync(CacheKeys.AggregateOrderFull(order.Id), reason, ct);
 
         return mapper.Map<PaymentResponseDto>(payment);
     }

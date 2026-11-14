@@ -1,41 +1,29 @@
 using Bakery.Reviews.Application.Caching;
 using MediatR;
-using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 
 namespace Bakery.Reviews.Application.Behaviors;
 
-public sealed class CachingBehavior<TRequest, TResponse>(IMemoryCache cache, ILogger<CachingBehavior<TRequest, TResponse>> logger)
+public sealed class CachingBehavior<TRequest, TResponse>(ICacheService cache, ILogger<CachingBehavior<TRequest, TResponse>> logger)
     : IPipelineBehavior<TRequest, TResponse>
     where TRequest : notnull
 {
     public async Task<TResponse> Handle(TRequest request, RequestHandlerDelegate<TResponse> next, CancellationToken ct)
     {
-        if (request is not ICacheableQuery cacheable)
+        if (request is not ICacheableQuery cacheable || string.IsNullOrEmpty(cacheable.CacheKey))
         {
             return await next();
         }
 
-        if (cache.TryGetValue(cacheable.CacheKey, out var stored) && stored is TResponse cached)
-        {
-            logger.LogDebug("Кеш {CacheKey}: потрапляння", cacheable.CacheKey);
+        logger.LogDebug("Кеш {CacheKey}: перевірка L1 → L2 → джерела", cacheable.CacheKey);
 
-            return cached;
-        }
+        var l1Ttl = cacheable.Ttl < TimeSpan.FromMinutes(2) ? cacheable.Ttl : TimeSpan.FromMinutes(2);
 
-        logger.LogDebug("Кеш {CacheKey}: промах, виконуємо запит до бази", cacheable.CacheKey);
-
-        var response = await next();
-
-        cache.Set(
+        return await cache.GetOrCreateAsync(
             cacheable.CacheKey,
-            response,
-            new MemoryCacheEntryOptions
-            {
-                AbsoluteExpirationRelativeToNow = cacheable.Ttl,
-                Size = 1,
-            });
-
-        return response;
+            _ => next(),
+            l1Ttl,
+            cacheable.Ttl,
+            ct);
     }
 }

@@ -13,7 +13,7 @@ public static class DependencyInjection
 
         services.AddAutoMapper(cfg => cfg.AddMaps(assembly));
         services.AddValidatorsFromAssembly(assembly);
-        services.AddMemoryCache();
+        services.AddMemoryCache(options => options.SizeLimit = 10_000);
         services.AddMediatR(cfg =>
         {
             cfg.RegisterServicesFromAssembly(assembly);

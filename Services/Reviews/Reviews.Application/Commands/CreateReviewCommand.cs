@@ -1,3 +1,4 @@
+using Bakery.Reviews.Application.Caching;
 using Bakery.Reviews.Application.Common;
 using Bakery.Reviews.Application.Diagnostics;
 using Bakery.Reviews.Application.DTOs;
@@ -26,6 +27,7 @@ public sealed record CreateReviewCommand(
 public sealed class CreateReviewCommandHandler(
     IReviewRepository reviews,
     IReviewQueries queries,
+    ICacheService cache,
     ILogger<CreateReviewCommandHandler> logger) : IRequestHandler<CreateReviewCommand, ReviewDto>
 {
     public async Task<ReviewDto> Handle(CreateReviewCommand request, CancellationToken ct)
@@ -55,6 +57,10 @@ public sealed class CreateReviewCommandHandler(
         logger.LogInformation(
             "Відгук {ReviewId} створено для товару {ProductId} із замовлення {OrderId}: статус {Status}, оцінка {Average}",
             review.Id, review.ProductId, review.OrderId, review.Status, review.Ratings.Average);
+
+        const string reason = "review-created";
+        await cache.RemoveAsync(CacheKeys.ProductRating(request.ProductId), reason, ct);
+        await cache.RemoveAsync(CacheKeys.ProductReviews(request.ProductId), reason, ct);
 
         return await queries.GetByIdAsync(review.Id, ct)
             ?? throw new ConflictException($"Відгук {review.Id} створено, але читальна модель його не повернула.");

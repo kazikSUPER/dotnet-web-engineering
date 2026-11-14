@@ -1,6 +1,7 @@
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Orders.API.Middleware;
+using Orders.BLL.Caching;
 using Orders.BLL.Diagnostics;
 using Orders.BLL.Interfaces;
 using Orders.BLL.Mapping;
@@ -25,6 +26,11 @@ builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddAutoMapper(cfg => cfg.AddMaps(typeof(MappingProfile).Assembly));
 builder.Services.AddValidatorsFromAssembly(typeof(CreateCustomerRequestValidator).Assembly);
+
+builder.Services.AddMemoryCache(options => options.SizeLimit = 10_000);
+builder.AddRedisDistributedCache("redis");
+builder.Services.AddSingleton<ICacheService, TwoLevelCacheService>();
+
 builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
 builder.Services.AddEndpointsApiExplorer();

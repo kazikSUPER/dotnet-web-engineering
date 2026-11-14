@@ -13,6 +13,7 @@ public class MappingProfile : Profile
             .ForMember(x => x.Price, x => x.MapFrom(y => y.Product == null ? 0m : y.Product.Price))
             .ForMember(x => x.CategoryName, x => x.MapFrom(y => y.Category == null ? string.Empty : y.Category.Name));
 
+        CreateMap<Product, ProductDto>();
         CreateMap<Product, ProductCardDto>()
             .ForMember(x => x.ProductId, x => x.MapFrom(y => y.Id))
             .ForMember(x => x.Description, x => x.MapFrom(y => y.Detail == null ? null : y.Detail.Description))

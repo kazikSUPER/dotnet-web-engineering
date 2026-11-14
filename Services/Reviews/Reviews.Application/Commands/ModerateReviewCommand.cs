@@ -1,3 +1,4 @@
+using Bakery.Reviews.Application.Caching;
 using Bakery.Reviews.Application.Common;
 using Bakery.Reviews.Application.Diagnostics;
 using Bakery.Reviews.Application.DTOs;
@@ -25,6 +26,7 @@ public sealed class ModerateReviewCommandHandler(
     IModerationLogRepository logs,
     IMongoUnitOfWork unitOfWork,
     IReviewQueries queries,
+    ICacheService cache,
     ILogger<ModerateReviewCommandHandler> logger) : IRequestHandler<ModerateReviewCommand, ReviewDto>
 {
     public async Task<ReviewDto> Handle(ModerateReviewCommand request, CancellationToken ct)
@@ -71,6 +73,12 @@ public sealed class ModerateReviewCommandHandler(
         logger.LogInformation(
             "Відгук {ReviewId} товару {ProductId} модератор {Moderator} перевів зі статусу {PreviousStatus} у {Status}",
             review.Id, review.ProductId, request.Moderator, previousStatus, review.Status);
+
+        var reason = $"review-moderated:{request.Action}";
+        await cache.RemoveAsync(CacheKeys.Review(request.Id), reason, ct);
+        await cache.RemoveAsync(CacheKeys.ProductRating(review.ProductId), reason, ct);
+        await cache.RemoveAsync(CacheKeys.ProductReviews(review.ProductId), reason, ct);
+        await cache.RemoveAsync(CacheKeys.AggregateOrderFull(review.OrderId), reason, ct);
 
         return await queries.GetByIdAsync(id, ct) ?? throw new NotFoundException("Відгук", request.Id);
     }
