@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package bakery.orders.v1;
+
+option csharp_namespace = "Orders.Api.Grpc";
+
+service OrdersService {
+  rpc GetOrder (GetOrderRequest) returns (OrderReply);
+}
+
+message GetOrderRequest {
+  int32 id = 1;
+}
+
+message OrderItemReply {
+  int32 product_id = 1;
+  string product_name = 2;
+  string unit_price = 3;
+  int32 quantity = 4;
+  string total_price = 5;
+}
+
+message OrderReply {
+  int32 id = 1;
+  string order_number = 2;
+  int32 customer_id = 3;
+  string customer_name = 4;
+  string status = 5;
+  string total_amount = 6;
+  string order_date = 7;
+  repeated OrderItemReply items = 8;
+}

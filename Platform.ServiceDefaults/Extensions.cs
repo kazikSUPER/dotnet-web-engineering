@@ -75,7 +75,9 @@ public static class Extensions
                     .AddHttpClientInstrumentation()
                     .AddSqlClientInstrumentation()
                     .AddSource(MongoDbInstrumentation.ActivitySourceName)
-                    .AddSource(PlatformActivitySource.Name);
+                    .AddSource(PlatformActivitySource.Name)
+                    .AddSource("Grpc.Net.Client")
+                    .AddSource("grpc.server");
 
                 foreach (var sourceName in activitySourceNames.Distinct(StringComparer.Ordinal))
                 {

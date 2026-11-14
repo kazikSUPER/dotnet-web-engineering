@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package bakery.reviews.v1;
+
+option csharp_namespace = "Reviews.WebApi.Grpc";
+
+service ReviewsService {
+  rpc GetReview (GetReviewRequest) returns (ReviewReply);
+  rpc GetProductRating (GetProductRatingRequest) returns (ProductRatingReply);
+  rpc GetProductReviews (GetProductReviewsRequest) returns (ProductReviewsReply);
+}
+
+message GetReviewRequest {
+  string id = 1;
+}
+
+message GetProductRatingRequest {
+  int32 product_id = 1;
+}
+
+message GetProductReviewsRequest {
+  int32 product_id = 1;
+}
+
+message ReviewReply {
+  string id = 1;
+  int32 order_id = 2;
+  int32 customer_id = 3;
+  string customer_name = 4;
+  int32 product_id = 5;
+  string product_name = 6;
+  string comment = 7;
+  int32 taste = 8;
+  int32 freshness = 9;
+  int32 aroma = 10;
+  double average = 11;
+  string status = 12;
+  string created_at = 13;
+}
+
+message ProductRatingReply {
+  int32 product_id = 1;
+  int32 total_reviews = 2;
+  double average_score = 3;
+  string last_updated = 4;
+}
+
+message ProductReviewsReply {
+  repeated ReviewReply items = 1;
+}

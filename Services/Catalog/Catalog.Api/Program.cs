@@ -1,4 +1,5 @@
 using Catalog.API.Middleware;
+using Catalog.Api.Grpc;
 using Catalog.BLL.Caching;
 using Catalog.BLL.Diagnostics;
 using Catalog.BLL.Interfaces;
@@ -6,13 +7,18 @@ using Catalog.BLL.Mapping;
 using Catalog.BLL.Services;
 using Catalog.DAL.Data;
 using Catalog.DAL.Interfaces;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.EntityFrameworkCore;
 using Platform.ServiceDefaults;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Host.UsePlatformSerilog("Catalog.Api");
 builder.AddServiceDefaults(CatalogActivitySources.SourceNames);
+
+builder.WebHost.ConfigureKestrel(options => options.ConfigureEndpointDefaults(endpoint =>
+    endpoint.Protocols = HttpProtocols.Http1AndHttp2));
 
 builder.Services.AddDbContext<CatalogDbContext>(options => options
     .UseSqlServer(builder.Configuration.GetConnectionString("CatalogDb"), sql => sql.EnableRetryOnFailure(20, TimeSpan.FromSeconds(5), null))
@@ -25,6 +31,8 @@ builder.Services.AddAutoMapper(cfg => cfg.AddMaps(typeof(MappingProfile).Assembl
 builder.Services.AddMemoryCache(options => options.SizeLimit = 10_000);
 builder.AddRedisDistributedCache("redis");
 builder.Services.AddSingleton<ICacheService, TwoLevelCacheService>();
+
+builder.Services.AddGrpc(options => options.Interceptors.Add<GrpcLoggingInterceptor>());
 
 builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
@@ -46,6 +54,7 @@ app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
 app.UseSwagger();
 app.UseSwaggerUI();
 app.MapControllers();
+app.MapGrpcService<CatalogGrpcService>();
 app.MapDefaultEndpoints();
 await app.RunAsync();
 

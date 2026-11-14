@@ -7,8 +7,10 @@ using Bakery.Reviews.Infrastructure.Health;
 using Bakery.Reviews.Infrastructure.Initialization;
 using Bakery.Reviews.Infrastructure.Seeding;
 using Bakery.Reviews.WebApi.Middleware;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.OpenApi;
 using Platform.ServiceDefaults;
+using Reviews.WebApi.Grpc;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -16,11 +18,16 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Host.UsePlatformSerilog("Reviews.WebApi");
 builder.AddServiceDefaults(ReviewsActivitySources.SourceNames);
 
+builder.WebHost.ConfigureKestrel(options => options.ConfigureEndpointDefaults(endpoint =>
+    endpoint.Protocols = HttpProtocols.Http1AndHttp2));
+
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 
 builder.AddRedisDistributedCache("redis");
 builder.Services.AddSingleton<ICacheService, TwoLevelCacheService>();
+
+builder.Services.AddGrpc(options => options.Interceptors.Add<GrpcLoggingInterceptor>());
 
 builder.Services.AddControllers(options => options.SuppressImplicitRequiredAttributeForNonNullableReferenceTypes = true)
     .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
@@ -46,6 +53,7 @@ app.UseSwagger();
 app.UseSwaggerUI();
 
 app.MapControllers();
+app.MapGrpcService<ReviewsGrpcService>();
 app.MapDefaultEndpoints();
 
 try

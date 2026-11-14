@@ -1,6 +1,5 @@
-using FluentValidation;
-using Microsoft.EntityFrameworkCore;
 using Orders.API.Middleware;
+using Orders.Api.Grpc;
 using Orders.BLL.Caching;
 using Orders.BLL.Diagnostics;
 using Orders.BLL.Interfaces;
@@ -9,12 +8,19 @@ using Orders.BLL.Services;
 using Orders.BLL.Validators;
 using Orders.DAL.Data;
 using Orders.DAL.Interfaces;
+using FluentValidation;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.EntityFrameworkCore;
 using Platform.ServiceDefaults;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Host.UsePlatformSerilog("Orders.Api");
 builder.AddServiceDefaults(OrdersActivitySources.SourceNames);
+
+builder.WebHost.ConfigureKestrel(options => options.ConfigureEndpointDefaults(endpoint =>
+    endpoint.Protocols = HttpProtocols.Http1AndHttp2));
 
 builder.Services.AddDbContext<OrdersDbContext>(options => options
     .UseSqlServer(builder.Configuration.GetConnectionString("OrdersDb"), sql => sql.EnableRetryOnFailure(20, TimeSpan.FromSeconds(5), null))
@@ -30,6 +36,8 @@ builder.Services.AddValidatorsFromAssembly(typeof(CreateCustomerRequestValidator
 builder.Services.AddMemoryCache(options => options.SizeLimit = 10_000);
 builder.AddRedisDistributedCache("redis");
 builder.Services.AddSingleton<ICacheService, TwoLevelCacheService>();
+
+builder.Services.AddGrpc(options => options.Interceptors.Add<GrpcLoggingInterceptor>());
 
 builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
@@ -51,6 +59,7 @@ app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
 app.UseSwagger();
 app.UseSwaggerUI();
 app.MapControllers();
+app.MapGrpcService<OrdersGrpcService>();
 app.MapDefaultEndpoints();
 await app.RunAsync();
 
