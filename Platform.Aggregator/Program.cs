@@ -1,16 +1,34 @@
 using Platform.Aggregator.Clients;
+using Platform.Aggregator.Caching;
 using Platform.Aggregator.Diagnostics;
+using Platform.Aggregator.GrpcClients;
 using Platform.Aggregator.Services;
 using Platform.ServiceDefaults;
 using Microsoft.OpenApi;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
+AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Host.UsePlatformSerilog("Aggregator");
 
 builder.AddServiceDefaults(AggregatorActivitySources.AssemblyName);
+
+builder.AddRedisDistributedCache("redis");
+builder.Services.AddSingleton<IAggregatedCache, AggregatedCache>();
+builder.Services.AddSingleton<GrpcClientLoggingInterceptor>();
+
+builder.Services.AddGrpcClient<Orders.Api.Grpc.OrdersService.OrdersServiceClient>(options =>
+    options.Address = new Uri("https+http://orders-api"))
+    .AddInterceptor<GrpcClientLoggingInterceptor>();
+builder.Services.AddGrpcClient<Catalog.Api.Grpc.CatalogService.CatalogServiceClient>(options =>
+    options.Address = new Uri("https+http://catalog-api"))
+    .AddInterceptor<GrpcClientLoggingInterceptor>();
+builder.Services.AddGrpcClient<Reviews.WebApi.Grpc.ReviewsService.ReviewsServiceClient>(options =>
+    options.Address = new Uri("https+http://reviews-api"))
+    .AddInterceptor<GrpcClientLoggingInterceptor>();
 
 builder.Services.AddHttpClient<OrdersClient>(client =>
 {
@@ -30,6 +48,7 @@ builder.Services.AddHttpClient<ReviewsClient>(client =>
 
 builder.Services.AddTransient<OrderAssemblyService>();
 builder.Services.AddTransient<ProductOverviewService>();
+builder.Services.AddTransient<GrpcOrderAggregateService>();
 
 builder.Services.AddControllers().AddJsonOptions(options =>
 {
