@@ -390,6 +390,28 @@ MongoDB для транзакцій потрібен як одно-вузлов�
 `rs.initiate()`); від лабораторної №4 індекси й сід виконує сам сервіс (`MongoIndexInitializer`,
 `MongoDataSeeder`), тому ручні скрипти не обов'язкові.
 
+### 5.7. Політика дублювання даних між базами (Data Duplication Policy)
+
+Між `CatalogDb`, `OrdersDb` і `BakeryReviewsDB` **немає фізичних FOREIGN KEY**: усі міжсервісні
+посилання — числові `Id`, кожна база належить рівно одному сервісу (Database-per-Service).
+
+| Дані | База-власник (Master) | Де дублюється (Replica) | Мета дублювання | Механізм узгодженості |
+|---|---|---|---|---|
+| `UnitPrice` | `CatalogDb.Products` | `OrdersDb.OrderItems` | Сума чеку не змінюється, коли каталог переоцінює товар | **Знімок:** `Order.AddItem` копіює ціну в момент створення замовлення |
+| `ProductName` | `CatalogDb.Products` | `OrdersDb.OrderItems` | Чек і список позицій формуються без звернення до Catalog | **Знімок:** `Order.AddItem` копіює назву в момент покупки |
+| `ProductName` | `CatalogDb.Products` | `BakeryReviewsDB.reviews` | Видача списку відгуків без міжсервісного join | **Знімок:** `Review.Create`; перейменування товару не переноситься на вже написані відгуки |
+| `CustomerName` | `OrdersDb.Customers` | `BakeryReviewsDB.reviews` | Показ автора відгуку без звернення до бази клієнтів | **Знімок:** `Review.Create` |
+| `averageRating` | `BakeryReviewsDB.reviews` | `BakeryReviewsDB.product_ratings` | Швидка видача рейтингу товару без агрегації щоразу | **Перерахунок:** `ProductRatingRepository.RecalculateAsync` у транзакції модерації/видалення |
+
+Актуальні дані каталогу в замовлення не копіюються взагалі — їх komponує Aggregator під час
+читання (`GET /api/aggregator/products/{id}/overview`, `GET /api/aggregator/orders/{id}/full`).
+Подієва узгодженість (`ProductCatalogUpdatedEvent`, `ProductRenamedEvent`,
+`CustomerProfileUpdatedEvent`) у проєкті **не реалізована**: історичні копії є навмисними
+знімками, а не репліками, які потрібно синхронізувати. Локального довідника `Products`
+у `OrdersDb` теж немає — сервіс замовлень не зберігає каталог.
+
+Опис контекстів і початкова редакція політики — у `docs/contexts_description.md`.
+
 ---
 
 ## 6. Відповідність критеріям лабораторної №5
@@ -407,6 +429,7 @@ MongoDB для транзакцій потрібен як одно-вузлов�
 | CorrelationId перед `MapReverseProxy`, логи метод/шлях/маршрут/статус/тривалість | `Platform.ApiGateway/Program.cs`, `RouteLoggingMiddleware.cs` |
 | Aggregator: паралельні виклики, часткові відмови, попередження | `Platform.Aggregator/Services/*`, `Clients/DownstreamClient.cs`, `Controllers/AggregationController.cs` |
 | Таймаут downstream-викликів 5 с → деградація за 5 с, а не 100 с | `Platform.Aggregator/Program.cs` (`client.Timeout`) |
+| Політика дублювання даних між базами, Database-per-Service без фізичних FK | README §5.7, `Order.AddItem`, `Review.Create`, `docs/contexts_description.md` |
 | README з інструкцією запуску | цей файл, §1 і §3 |
 
 **Перевірено на живій платформі** (Aspire + Docker, gateway `:5000`):
