@@ -7,7 +7,6 @@ using Catalog.BLL.Mapping;
 using Catalog.BLL.Services;
 using Catalog.DAL.Data;
 using Catalog.DAL.Interfaces;
-using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.EntityFrameworkCore;
 using Platform.ServiceDefaults;
 using Serilog;
@@ -16,9 +15,6 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Host.UsePlatformSerilog("Catalog.Api");
 builder.AddServiceDefaults(CatalogActivitySources.SourceNames);
-
-builder.WebHost.ConfigureKestrel(options => options.ConfigureEndpointDefaults(endpoint =>
-    endpoint.Protocols = HttpProtocols.Http1AndHttp2));
 
 builder.Services.AddDbContext<CatalogDbContext>(options => options
     .UseSqlServer(builder.Configuration.GetConnectionString("CatalogDb"), sql => sql.EnableRetryOnFailure(20, TimeSpan.FromSeconds(5), null))

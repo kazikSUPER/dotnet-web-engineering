@@ -9,7 +9,6 @@ using Orders.BLL.Validators;
 using Orders.DAL.Data;
 using Orders.DAL.Interfaces;
 using FluentValidation;
-using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.EntityFrameworkCore;
 using Platform.ServiceDefaults;
 using Serilog;
@@ -18,9 +17,6 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Host.UsePlatformSerilog("Orders.Api");
 builder.AddServiceDefaults(OrdersActivitySources.SourceNames);
-
-builder.WebHost.ConfigureKestrel(options => options.ConfigureEndpointDefaults(endpoint =>
-    endpoint.Protocols = HttpProtocols.Http1AndHttp2));
 
 builder.Services.AddDbContext<OrdersDbContext>(options => options
     .UseSqlServer(builder.Configuration.GetConnectionString("OrdersDb"), sql => sql.EnableRetryOnFailure(20, TimeSpan.FromSeconds(5), null))

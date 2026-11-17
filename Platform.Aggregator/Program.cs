@@ -21,13 +21,13 @@ builder.Services.AddSingleton<IAggregatedCache, AggregatedCache>();
 builder.Services.AddSingleton<GrpcClientLoggingInterceptor>();
 
 builder.Services.AddGrpcClient<Orders.Api.Grpc.OrdersService.OrdersServiceClient>(options =>
-    options.Address = new Uri("https+http://orders-api"))
+    options.Address = new Uri("http://_grpc.orders-api"))
     .AddInterceptor<GrpcClientLoggingInterceptor>();
 builder.Services.AddGrpcClient<Catalog.Api.Grpc.CatalogService.CatalogServiceClient>(options =>
-    options.Address = new Uri("https+http://catalog-api"))
+    options.Address = new Uri("http://_grpc.catalog-api"))
     .AddInterceptor<GrpcClientLoggingInterceptor>();
 builder.Services.AddGrpcClient<Reviews.WebApi.Grpc.ReviewsService.ReviewsServiceClient>(options =>
-    options.Address = new Uri("https+http://reviews-api"))
+    options.Address = new Uri("http://_grpc.reviews-api"))
     .AddInterceptor<GrpcClientLoggingInterceptor>();
 
 builder.Services.AddHttpClient<OrdersClient>(client =>
