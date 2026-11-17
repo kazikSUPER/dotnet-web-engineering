@@ -1,3 +1,4 @@
+using System.Globalization;
 using Catalog.Api.Grpc;
 using Catalog.BLL.Interfaces;
 using Grpc.Core;
@@ -23,7 +24,7 @@ public sealed class CatalogGrpcService(IProductService products) : CatalogServic
         {
             Id = product.Id,
             Name = product.Name,
-            Price = product.Price.ToString("0.00"),
+            Price = product.Price.ToString("0.00", CultureInfo.InvariantCulture),
             Stock = product.Stock,
             IsAvailable = product.IsAvailable,
         };
@@ -45,7 +46,7 @@ public sealed class CatalogGrpcService(IProductService products) : CatalogServic
             {
                 ProductId = item.ProductId,
                 ProductName = item.ProductName,
-                Price = item.Price.ToString("0.00"),
+                Price = item.Price.ToString("0.00", CultureInfo.InvariantCulture),
                 CategoryId = item.CategoryId,
                 CategoryName = item.CategoryName,
                 AddedAt = item.AddedAt.ToString("O"),
