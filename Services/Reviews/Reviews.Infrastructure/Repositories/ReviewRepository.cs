@@ -101,4 +101,24 @@ public sealed class ReviewRepository(MongoDbContext db) : IReviewRepository
 
         return result.ModifiedCount;
     }
+
+    public async Task<IReadOnlyList<string>> GetIdsByProductAsync(int productId, CancellationToken ct = default)
+    {
+        var ids = await db.Reviews
+            .Find(db.Session, Builders<Review>.Filter.Eq(x => x.ProductId, productId))
+            .Project(x => x.Id)
+            .ToListAsync(ct);
+
+        return ids.ConvertAll(id => id.ToString());
+    }
+
+    public async Task<IReadOnlyList<string>> GetIdsByCustomerAsync(int customerId, CancellationToken ct = default)
+    {
+        var ids = await db.Reviews
+            .Find(db.Session, Builders<Review>.Filter.Eq(x => x.CustomerId, customerId))
+            .Project(x => x.Id)
+            .ToListAsync(ct);
+
+        return ids.ConvertAll(id => id.ToString());
+    }
 }

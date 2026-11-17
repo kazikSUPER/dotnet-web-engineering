@@ -23,4 +23,8 @@ public interface IReviewRepository
     Task<long> UpdateProductNameAsync(int productId, string productName, CancellationToken ct = default);
 
     Task<long> UpdateCustomerNameAsync(int customerId, PersonName name, CancellationToken ct = default);
+
+    Task<IReadOnlyList<string>> GetIdsByProductAsync(int productId, CancellationToken ct = default);
+
+    Task<IReadOnlyList<string>> GetIdsByCustomerAsync(int customerId, CancellationToken ct = default);
 }

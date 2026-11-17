@@ -61,6 +61,7 @@ public sealed class CreateReviewCommandHandler(
         const string reason = "review-created";
         await cache.RemoveAsync(CacheKeys.ProductRating(request.ProductId), reason, ct);
         await cache.RemoveAsync(CacheKeys.ProductReviews(request.ProductId), reason, ct);
+        await cache.RemoveAsync(CacheKeys.AggregateOrderFull(request.OrderId), reason, ct);
 
         return await queries.GetByIdAsync(review.Id, ct)
             ?? throw new ConflictException($"Відгук {review.Id} створено, але читальна модель його не повернула.");
