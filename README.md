@@ -58,23 +58,65 @@ curl -H "X-Correlation-Id: demo-lab5" http://localhost:5000/api/products/categor
 curl http://localhost:5000/api/aggregator/products/1/overview
 ```
 
-### 1.4. Альтернатива: інфраструктура одним стеком у Docker Desktop
+### 1.4. Альтернатива: уся інфраструктура одним стеком у Docker Desktop
 
-`docker-compose.yml` піднімає **лише SQL Server і MongoDB** одним стеком `dotnet-web`
-(одна кнопка Start/Stop у Docker Desktop):
+`docker-compose.yml` — один проєкт `dotnet-web` з усіма базами та інфра-сервісами курсу:
+одна кнопка Start/Stop у Docker Desktop замість окремих контейнерів.
+
+| Сервіс | Образ | Порт (localhost) | Призначення |
+|---|---|---|---|
+| `sql` | mssql/server:2022-latest | 1433 | `CatalogDb` + `OrdersDb` |
+| `mongo` | mongo:8.3 | 27017 | `BakeryReviewsDB`, одно-вузловий replica set `rs0` для транзакцій |
+| `redis` | redis:8.6 | 6379 | L2-кеш лаби 6 |
+| `rabbitmq` | rabbitmq:4-management-alpine | 5672 / 15672 | брокер лаби 8 + Management UI, профіль `messaging` |
+| `keycloak-postgres` | postgres:16-alpine | — (лише в мережі стека) | база `keycloakdb` |
+| `keycloak` | keycloak:26.0 | 8080 | IdP лаби 9, профіль `auth` |
 
 ```bash
-cp .env.example .env   # або Copy-Item .env.example .env; задайте сильний MSSQL_SA_PASSWORD
-docker compose up -d   # обидва контейнери + мережа dotnet-web + постійні volumes
+cp .env.example .env              # задайте паролі; MSSQL_SA_PASSWORD має збігатися з паролем тома
+docker compose up -d              # sql + mongo + redis — достатньо для лаб 6–7
+docker compose --profile messaging up -d   # + rabbitmq (лаба 8)
+docker compose --profile auth up -d        # + keycloak і його postgres (лаба 9, ~1.5 ГБ RAM)
 docker compose ps
-docker compose down    # дані у volumes зберігаються
+docker compose --profile messaging --profile auth down   # зупинити все; дані у volumes зберігаються
 ```
 
-Після цього сервіси можна запускати окремо (`dotnet run --project Services/Orders/Orders.Api
---launch-profile http` тощо) — рядки підключення в `appsettings.json` ведуть на `localhost:1433` /
-`localhost:27017`. **Не запускайте Compose та Aspire одночасно**: вони використовують однакові імена
-контейнерів і volumes (`dotnet-web-sql-data`, `dotnet-web-mongo-data`, `dotnet-web-redis-data`),
-тому дані спільні для обох способів запуску й переживають перезапуск.
+RabbitMQ і Keycloak за замовчуванням **не стартують**: у коді лаб 6–7 на них немає жодного
+посилання, тож вони займають RAM лише тоді, коли явно увімкнені відповідним профілем.
+Заповніть, однак, **усі** значення в `.env` (як в `.env.example`): Compose інтерполює весь файл,
+тому обов'язкові змінні вимкнених профілів теж зупиняють `up -d`, якщо лишились порожніми.
+
+Keycloak стартує в `start-dev` без TLS; логін і пароль адміна — у `.env`
+(`KEYCLOAK_ADMIN_USER` / `KEYCLOAK_ADMIN_PASSWORD`), realm за планом лаби 9 — `BakeryRealm`.
+Усі порти прив'язані до `127.0.0.1`, тож назовні нічого не дивиться.
+
+**Імена контейнерів і томів збігаються з Aspire** (`dotnet-web-sql`, `dotnet-web-mongo`,
+`dotnet-web-redis`, томи `dotnet-web-*-data`), тому дані спільні для обох способів запуску
+й переживають перезапуск. **Не запускайте Compose та Aspire одночасно.** Щоб перейти з Aspire
+на стек, спершу приберіть контейнери, які створив Aspire (дані лишаються в томах):
+
+```bash
+docker rm -f dotnet-web-sql dotnet-web-mongo dotnet-web-redis
+docker compose up -d
+```
+
+Mongo у стеку піднімається з `--replSet rs0` і сам ініціює репліка-сет у healthcheck — на відміну
+від Aspire-контейнера, де транзакції модерації недоступні. Учасник реплікації оголошений як
+`localhost:27017`, тож резолвиться з хост-машини, де працюють сервіси.
+Aspire створює тому Mongo з root-користувачем і вимагає TLS; compose-версія стартує без `--auth`
+і без TLS, тому наявні користувачі ігноруються й сервіси підключаються без пароля (лише для dev).
+
+Сервіси після цього запускаються окремо (`dotnet run --project Services/Orders/Orders.Api`).
+Увага: fallback у `appsettings.json` для Catalog/Orders — **LocalDB**, а не compose-SQL, тому
+в compose-режимі рядки підключення треба передати через змінні середовища:
+
+```bash
+export ConnectionStrings__CatalogDb="Server=localhost,1433;Database=CatalogDb;User Id=sa;Password=<MSSQL_SA_PASSWORD з .env>;TrustServerCertificate=True"
+export ConnectionStrings__OrdersDb="Server=localhost,1433;Database=OrdersDb;User Id=sa;Password=<MSSQL_SA_PASSWORD з .env>;TrustServerCertificate=True"
+export ConnectionStrings__redis="localhost:6379"
+```
+
+Reviews уже має fallback `mongodb://localhost:27017` і додаткових змінних не потребує.
 
 ---
 
@@ -289,31 +331,63 @@ curl -X POST http://localhost:5000/api/moderation/reviews/<id> -H "Content-Type:
 Redis додається в AppHost через `AddRedis("redis").WithDataVolume("dotnet-web-redis-data")`; сервіси й
 Aggregator отримують його через `WithReference(redis)` + `AddRedisDistributedCache("redis")`.
 
-- **L1** — `IMemoryCache` у `Caching/` кожного сервісу (`SizeLimit = 10_000`, sliding/absolute
-  expiration, cache-aside). **L2** — Redis через `IDistributedCache`; DTO серіалізуються
-  `System.Text.Json`, ключі з префіксами сервісів (`CacheKeys`), після запису пов'язані ключі
-  інвалідуються синхронно.
-- Aggregator кешує повні відповіді в Redis на 45 с і **не кешує** часткові результати з попередженнями.
+- **L1** — `IMemoryCache` у `Caching/` кожного сервісу (`SizeLimit = 10_000`, `Size = 1`,
+  sliding 30 с, absolute = TTL типу даних, cache-aside). **L2** — Redis через `IDistributedCache`;
+  DTO серіалізуються `System.Text.Json`, ключі з префіксами сервісів (`CacheKeys`). Рівні заповнюються
+  на зворотному шляху L1 → L2 → БД, TTL L1 коротший за L2.
+- Інвалідація одразу після запису: `POST/PUT/DELETE` відгуків видаляють пов'язані ключі синхронно з
+  операцією, причина логується (`CacheInvalidated key=… reason=…`). Масові перейменування
+  (`PUT by-product/{id}`, `PUT by-customer/{id}`) інвалідують ключі самих відгуків і списку відгуків
+  товару; агрегат `aggregate:order:{id}:full` вони не чіпають — він доживає свої 45 с TTL.
+- Aggregator кешує повні відповіді в Redis на 45 с, перевіряє кеш **до** gRPC-викликів і **не кешує**
+  часткові результати з попередженнями.
 - Контракти: `Protos/catalog.proto`, `Protos/orders.proto`, `Protos/reviews.proto` у кожному сервісі;
   сервери — `Grpc/*GrpcService.cs` (адаптери над BLL/`ISender`, `InvalidArgument`/`NotFound` замість
   `Internal`), реєстрація `AddGrpc` + `MapGrpcService`. Клієнти Aggregator — типізовані `AddGrpcClient`
   з service discovery і `GrpcClientLoggingInterceptor`; незалежні виклики паралельні, `Unavailable` /
   `DeadlineExceeded` перетворюються на частковий результат або 503.
-- Метрики кешу: Meter `Platform.Caching`, лічильники `cache.hits` / `cache.misses` (`CacheMetrics`).
-- В Aggregator уже стоїть `AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true)`.
+- Метрики кешу: Meter `Platform.Caching`, лічильники `cache.hits` / `cache.misses` з тегами `level`
+  (L1/L2) і `cache`; Meter зареєстрований у `ServiceDefaults` через `.AddMeter("Platform.Caching")`.
 
-**Відомий gap лабораторної №6 (ще не закрито).** `GET /api/aggregator/grpc/orders/{id}/full`
-зараз віддає **500**. Дві причини, обидві підтверджені логами процесів:
+### 4.1. h2c: окремий HTTP/2-only ендпоінт
 
-1. `GrpcChannel.ForAddress` не резолвить схему `https+http://` — у
-   `Microsoft.Extensions.ServiceDiscovery` 10.7.0 немає gRPC-інтеграції
-   (`InvalidOperationException: No address resolver configured for the scheme 'https+http'`).
-2. Kestrel без TLS не вмикає HTTP/2 на ендпоінті з `Http1AndHttp2`:
-   «HTTP/2 is not enabled … Connections to this endpoint will use HTTP/1.1», тобто h2c фактично не працює.
+Kestrel без TLS на `Http1AndHttp2` опускається до HTTP/1.1 («Otherwise, the connection defaults to
+HTTP/1.1»), тому gRPC слухає **власний** ендпоінт з `Protocols: Http2`. Порти оголошені в
+`appsettings.json` кожного сервісу й продубльовані в AppHost через
+`WithHttpEndpoint(port, targetPort, isProxied: false)` — Aspire запускає проєкти з
+`--no-launch-profile`, тож без явних портів Kestrel-конфіг і service discovery роз'їхалися б.
 
-План виправлення: окремий HTTP/2-only plaintext ендпоінт для gRPC у кожному сервісі та адресація
-gRPC-клієнтів через `IHttpClientFactory` із service discovery замість `https+http`.
-REST-агрегати (§2.4) працюють і перевірені на живій платформі.
+| Сервіс | REST (`Http1AndHttp2`) | gRPC (`Http2`) |
+|---|---|---|
+| Orders.Api | 5172 | 5272 |
+| Catalog.Api | 5173 | 5273 |
+| Reviews.WebApi | 5180 | 5280 |
+
+gRPC-ендпоінт позначений `ExcludeReferenceEndpoint = true`, щоб звичайний `WithReference(svc)` не
+підмішував його в REST-резолвінг; Aggregator підключає його явно —
+`.WithReference(orders.GetEndpoint("grpc"))`. Адреси клієнтів — `http://_grpc.orders-api`: у Aspire
+`_` відділяє ім'я ендпоінта від імені сервісу. `isProxied: false` обов'язковий, бо для неконтейнерних
+ресурсів Aspire не вміє проксювати ендпоінт, у якого `Port == TargetPort`.
+`AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true)` лишається
+потрібним для plaintext HTTP/2.
+
+### 4.2. Перевірено на живій платформі (17.11.2026)
+
+| Перевірка | Результат |
+|---|---|
+| `GET /api/aggregator/orders/1/full` (REST) | 200, `downstreamCalls: 8` |
+| `GET /api/aggregator/grpc/orders/1/full` | 200, `cached: false`; повторний виклик — `cached: true` |
+| Ціни з gRPC | `60.00` і `160.00` — invariant culture, без помилкового ×100 |
+| Redis `aggregate:order:1:full` | TTL рівно 45 с |
+| `PUT /api/reviews/by-product/1` | інвалідовано `reviews:review:{id}` і `reviews:product:1:reviews`, reason `product-renamed` |
+| Логи кешу | `CacheHit level=L1`, `CacheHit level=L2`, `CacheMiss key=…` |
+| Server interceptor | `gRPC ok method="/bakery.catalog.v1.CatalogService/GetProduct" peer="ipv6:[::1]:51305" status=OK elapsed=21ms` |
+| Reviews зупинено | 200 + `warnings: ["reviews:product:3 unavailable (Unavailable)"]`; частковий агрегат у Redis не записаний |
+| Orders зупинено | 503 ProblemDetails «gRPC service orders is unavailable», не 500 |
+
+Redis в Aspire 13.6 піднімається з TLS і паролем, тому прямий `redis-cli` без `--tls` дає
+«Connection reset by peer»; ключі перевіряються так:
+`docker exec dotnet-web-redis sh -c 'redis-cli --tls --insecure -a "$REDIS_PASSWORD" --no-auth-warning TTL "aggregate:order:1:full"'`.
 
 ---
 
@@ -414,7 +488,9 @@ MongoDB для транзакцій потрібен як одно-вузлов�
 
 ---
 
-## 6. Відповідність критеріям лабораторної №5
+## 6. Відповідність критеріям лабораторних №5 і №6
+
+### 6.1. Лабораторна №5
 
 | Критерій | Де в коді |
 |---|---|
@@ -447,6 +523,33 @@ MongoDB для транзакцій потрібен як одно-вузлов�
   (`WithDataVolume`).
 - `dotnet build Platform.slnx` → 0 помилок, 7 відомих warning (NU1903/NU1904, ASPIRE010).
 
+### 6.2. Лабораторна №6 (14 критеріїв → 11 балів)
+
+Ваги й тип перевірки взяті з вкладки «Критерії» на tomka.pp.ua. `ШІ` — перевіряє ШІ-асистент,
+`AST` — статичний аналіз коду.
+
+| № | Критерій | Вага | Тип | Де в коді |
+|---|---|---|---|---|
+| 1 | Redis в AppHost з постійним сховищем і посиланнями | 0.6 | ШІ | `Platform.AppHost/Program.cs`: `AddRedis("redis").WithDataVolume(...)`, `WithReference(redis).WaitFor(redis)` у трьох сервісах і Aggregator |
+| 2 | `.proto` підключені в проєкти (Server / Client) | 0.6 | AST | `Services/*/*.Api/Protos/*.proto` + `<Protobuf GrpcServices="Server">` у трьох `.csproj`; `Platform.Aggregator.csproj` — ті самі файли з `GrpcServices="Client"` |
+| 3 | `IMemoryCache` з `SizeLimit` і політиками витіснення | 0.7 | ШІ | `Catalog.Api/Program.cs`, `Orders.Api/Program.cs`, `Reviews.Application/DependencyInjection.cs` (`AddMemoryCache(o => o.SizeLimit = 10_000)`); `*/Caching/TwoLevelCacheService.cs` (`Size = 1`, sliding 30 с, absolute = TTL) |
+| 4 | Cache-aside для read-heavy операцій з передбачуваними ключами | 0.9 | ШІ | `*/Caching/TwoLevelCacheService.cs` (кеш → БД → запис), `*/Caching/CacheKeys.cs` (`catalog:product:{id}`), логи `CacheHit` / `CacheMiss` |
+| 5 | Інвалідація кешу одразу після запису | 0.7 | ШІ | `Reviews.Application/Commands/{CreateReview,UpdateReview,DeleteReview,RenameProduct,ChangeCustomerName}Command.cs`, `TwoLevelCacheService.RemoveAsync` (логує `reason`) |
+| 6 | `IDistributedCache` поверх Redis через Aspire | 0.9 | ШІ | `AddRedisDistributedCache("redis")` у `Catalog.Api/Program.cs`, `Orders.Api/Program.cs`, `Reviews.WebApi/Program.cs`, `Platform.Aggregator/Program.cs`; `System.Text.Json` + префікси в `CacheKeys` |
+| 7 | Дворівневий кеш L1 → L2 → БД | 1.0 | ШІ | `*/Caching/TwoLevelCacheService.cs` (зворотне заповнення рівнів, TTL L1 < L2); `Reviews.Application/Behaviors/CachingBehavior.cs` + `ICacheableQuery` |
+| 8 | Protocol Buffers контракти для доменних сутностей | 0.8 | AST | `Protos/{catalog,orders,reviews}.proto`: `proto3`, `package`, `csharp_namespace`, `service` + `rpc`, `message` з номерами полів |
+| 9 | gRPC-сервіси як адаптери над BLL з `RpcException` | 1.1 | ШІ | `Services/*/Grpc/*GrpcService.cs` (базовий згенерований клас, валідація, `NotFound`/`InvalidArgument`), `AddGrpc` + `MapGrpcService` у `Program.cs`, HTTP/2-ендпоінт (§4.1) |
+| 10 | Типізовані gRPC-клієнти Aggregator із service discovery | 0.7 | ШІ | `Platform.Aggregator/Program.cs`: три `AddGrpcClient<>` з адресами `http://_grpc.{orders,catalog,reviews}-api` |
+| 11 | Паралельні gRPC-виклики з обробкою часткових відмов | 1.1 | ШІ | `Platform.Aggregator/Services/GrpcOrderAggregateService.cs`: `Task.WhenAll`, `CancellationToken` у кожному виклику, `Unavailable`/`DeadlineExceeded` → `warnings` або 503 |
+| 12 | Кеш агрегованої відповіді в Redis з коротким TTL | 0.6 | ШІ | `Platform.Aggregator/Caching/AggregatedCache.cs` (`aggregate:order:{id}:full`, TTL 45 с); перевірка до викликів і `warnings.IsEmpty` перед записом у `GrpcOrderAggregateService` |
+| 13 | Серверний interceptor для логування gRPC-викликів | 0.6 | ШІ | `Services/*/Grpc/GrpcLoggingInterceptor.cs` (метод, peer, статус, тривалість), клієнтський — `Platform.Aggregator/GrpcClients/GrpcClientLoggingInterceptor.cs` |
+| 14 | Метрики попадань і промахів кешу через `Meter` | 0.7 | ШІ | `*/Caching/CacheMetrics.cs` + `Platform.Aggregator/Caching/AggregatedCache.cs` (`cache.hits`/`cache.misses`, тег `level`), `.AddMeter("Platform.Caching")` у `Platform.ServiceDefaults/Extensions.cs` |
+
+Сума ваг: інфраструктура 1.2 + локальне кешування 2.3 + розподілене 1.9 + gRPC-сервіси 1.9 +
+Aggregator 2.4 + обсервабіліті 1.3 = **11.0**.
+
+Живі докази по критеріях 4, 5, 9, 11, 12 — у §4.2.
+
 ---
 
 ## 7. Додаток: рішення лабораторних №2–4
@@ -477,7 +580,7 @@ MongoDB для транзакцій потрібен як одно-вузлов�
 | №3 | EF Core Code-First, специфікації, валідація | виконано (`lab-03`, доопрацювання в `lab-04`) |
 | №4 | Clean Architecture + CQRS + MongoDB (Reviews) | виконано (`lab-04`) |
 | №5 | Мікросервісна платформа: AppHost, ServiceDefaults, Gateway, Aggregator | здано (`lab-05`) |
-| №6 | gRPC + дворівневе кешування Memory/Redis | у роботі (`lab-06`) |
+| №6 | gRPC + дворівневе кешування Memory/Redis | реалізовано й перевірено на живій платформі, ще не здано (`lab-06`) |
 
 ## 9. Корисні команди
 
