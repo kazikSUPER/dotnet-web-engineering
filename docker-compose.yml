@@ -10,7 +10,7 @@ services:
       MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?Set MSSQL_SA_PASSWORD in .env}
       MSSQL_PID: "Developer"
     ports:
-      - "1433:1433"
+      - "127.0.0.1:1433:1433"
     volumes:
       - dotnet-web-sql-data:/var/opt/mssql
     networks:
@@ -26,18 +26,122 @@ services:
     image: mongo:8.3
     container_name: dotnet-web-mongo
     restart: unless-stopped
+    command: ["--replSet", "rs0", "--bind_ip_all"]
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27017:27017"
     volumes:
       - dotnet-web-mongo-data:/data/db
     networks:
       - dotnet-web
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      test:
+        - CMD-SHELL
+        - >-
+          mongosh --quiet --eval
+          "try { rs.status().ok } catch (e) {
+            if (e.codeName === 'NotYetInitialized') { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'localhost:27017' }] }).ok }
+            else { quit(1) }
+          }"
       interval: 15s
       timeout: 10s
       retries: 10
       start_period: 20s
+
+  redis:
+    image: redis:8.6
+    container_name: dotnet-web-redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "60", "1"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - dotnet-web-redis-data:/data
+    networks:
+      - dotnet-web
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    container_name: dotnet-web-rabbitmq
+    restart: unless-stopped
+    profiles: ["messaging"]
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-bakery}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:?Set RABBITMQ_PASS in .env}
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - dotnet-web-rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - dotnet-web
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  keycloak-postgres:
+    image: postgres:16-alpine
+    container_name: dotnet-web-keycloak-postgres
+    restart: unless-stopped
+    profiles: ["auth"]
+    environment:
+      POSTGRES_DB: keycloakdb
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?Set KEYCLOAK_DB_PASSWORD in .env}
+    volumes:
+      - dotnet-web-keycloak-data:/var/lib/postgresql/data
+    networks:
+      - dotnet-web
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloakdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: dotnet-web-keycloak
+    restart: unless-stopped
+    profiles: ["auth"]
+    command: ["start-dev", "--http-port=8080"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-postgres:5432/keycloakdb
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?Set KEYCLOAK_DB_PASSWORD in .env}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?Set KEYCLOAK_ADMIN_PASSWORD in .env}
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN_USER:-admin}
+      KEYCLOAK_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?Set KEYCLOAK_ADMIN_PASSWORD in .env}
+      KC_HEALTH_ENABLED: "true"
+      KC_METRICS_ENABLED: "true"
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks:
+      - dotnet-web
+    depends_on:
+      keycloak-postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000 &&
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '200 OK' <&3
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
 
 networks:
   dotnet-web:
@@ -49,3 +153,9 @@ volumes:
     name: dotnet-web-sql-data
   dotnet-web-mongo-data:
     name: dotnet-web-mongo-data
+  dotnet-web-redis-data:
+    name: dotnet-web-redis-data
+  dotnet-web-rabbitmq-data:
+    name: dotnet-web-rabbitmq-data
+  dotnet-web-keycloak-data:
+    name: dotnet-web-keycloak-data
