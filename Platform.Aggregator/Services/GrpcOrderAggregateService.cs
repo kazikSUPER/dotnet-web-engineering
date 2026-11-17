@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using Catalog.Api.Grpc;
 using Grpc.Core;
@@ -40,7 +41,7 @@ public sealed class GrpcOrderAggregateService(
             throw new GrpcDownstreamUnavailableException("orders", exception);
         }
 
-        var warnings = new List<string>();
+        var warnings = new ConcurrentQueue<string>();
         var catalogTasks = order.Items.Select(item => GetCatalogAsync(item.ProductId, warnings, ct)).ToArray();
         var ratingTasks = order.Items.Select(item => GetRatingAsync(item.ProductId, warnings, ct)).ToArray();
         await Task.WhenAll(catalogTasks.Cast<Task>().Concat(ratingTasks));
@@ -64,9 +65,9 @@ public sealed class GrpcOrderAggregateService(
             ParseDecimal(order.TotalAmount),
             products,
             false,
-            warnings);
+            warnings.ToList());
 
-        if (warnings.Count == 0)
+        if (warnings.IsEmpty)
         {
             await cache.SetAsync(key, result, AggregatedCache.Ttl, ct);
         }
@@ -78,7 +79,7 @@ public sealed class GrpcOrderAggregateService(
         return result;
     }
 
-    private async Task<GrpcCatalogProductSnapshot?> GetCatalogAsync(int productId, List<string> warnings, CancellationToken ct)
+    private async Task<GrpcCatalogProductSnapshot?> GetCatalogAsync(int productId, ConcurrentQueue<string> warnings, CancellationToken ct)
     {
         try
         {
@@ -87,13 +88,13 @@ public sealed class GrpcOrderAggregateService(
         }
         catch (RpcException exception) when (Degradable.Contains(exception.StatusCode))
         {
-            warnings.Add($"catalog:product:{productId} unavailable ({exception.StatusCode})");
+            warnings.Enqueue($"catalog:product:{productId} unavailable ({exception.StatusCode})");
             logger.LogWarning(exception, "Catalog gRPC недоступний для товару {ProductId}", productId);
             return null;
         }
     }
 
-    private async Task<GrpcProductRatingSnapshot?> GetRatingAsync(int productId, List<string> warnings, CancellationToken ct)
+    private async Task<GrpcProductRatingSnapshot?> GetRatingAsync(int productId, ConcurrentQueue<string> warnings, CancellationToken ct)
     {
         try
         {
@@ -102,7 +103,7 @@ public sealed class GrpcOrderAggregateService(
         }
         catch (RpcException exception) when (Degradable.Contains(exception.StatusCode))
         {
-            warnings.Add($"reviews:product:{productId} unavailable ({exception.StatusCode})");
+            warnings.Enqueue($"reviews:product:{productId} unavailable ({exception.StatusCode})");
             logger.LogWarning(exception, "Reviews gRPC недоступний для товару {ProductId}", productId);
             return null;
         }
