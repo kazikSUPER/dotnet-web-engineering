@@ -1,0 +1,48 @@
+using Bakery.Reviews.Application.Commands;
+using Bakery.Reviews.Domain.Entities;
+using Bakery.Reviews.Infrastructure.Persistence;
+using MediatR;
+using Microsoft.Extensions.Logging;
+using MongoDB.Driver;
+using Platform.EventBus.Consuming;
+using Platform.EventBus.Events.Contracts;
+
+namespace Reviews.WebApi.IntegrationEvents.Handlers;
+
+public sealed class ProductRenamedEventHandler(
+    MongoDbContext db,
+    ISender sender,
+    ILogger<ProductRenamedEventHandler> logger) : IIntegrationEventHandler<ProductRenamedEvent>
+{
+    public async Task HandleAsync(ProductRenamedEvent @event, CancellationToken cancellationToken = default)
+    {
+        var eventIdStr = @event.EventId.ToString();
+
+        // 9. Idempotency check with processed_events collection
+        var alreadyProcessed = await db.ProcessedEvents
+            .Find(e => e.EventId == eventIdStr)
+            .AnyAsync(cancellationToken);
+
+        if (alreadyProcessed)
+        {
+            logger.LogInformation("Event {EventId} already processed in Reviews. Skipping.", @event.EventId);
+            return;
+        }
+
+        logger.LogInformation("Processing ProductRenamedEvent for ProductId {ProductId}: {OldName} -> {NewName}",
+            @event.ProductId, @event.OldName, @event.NewName);
+
+        // Update denormalized product name across all reviews
+        await sender.Send(new RenameProductCommand(@event.ProductId, @event.NewName), cancellationToken);
+
+        // Record processed event
+        await db.ProcessedEvents.InsertOneAsync(new ProcessedEventDocument
+        {
+            EventId = eventIdStr,
+            EventType = nameof(ProductRenamedEvent),
+            ProcessedAt = DateTime.UtcNow
+        }, cancellationToken: cancellationToken);
+
+        logger.LogInformation("Successfully updated product name and recorded event {EventId} in Reviews.", @event.EventId);
+    }
+}

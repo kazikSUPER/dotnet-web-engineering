@@ -1,0 +1,6 @@
+@Catalog.Api_HostAddress = http://localhost:5173
+
+GET {{Catalog.Api_HostAddress}}/api/products/category/1
+Accept: application/json
+
+###

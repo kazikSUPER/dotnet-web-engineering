@@ -1,78 +1,77 @@
 graph TB
     subgraph "CLIENT LAYER"
-        WEB[Web Application]
-        MOBILE[Mobile App]
-        API_GW[API Gateway]
-        WEB --> API_GW
-        MOBILE --> API_GW
+        WEB[Web / curl / Swagger]
     end
 
-    subgraph "MESSAGE BUS"
-        MSG[Event Bus<br/>UserUpdated<br/>ProductUpdated<br/>OrderCreated<br/>PaymentProcessed]
+    subgraph "EDGE"
+        GW["Platform.ApiGateway<br/>YARP reverse proxy<br/>fixed port 5000<br/>CorrelationId + route logging"]
     end
 
-    subgraph "USER MICROSERVICE"
-        US_API[User API]
-        US_BIZ[User Business Logic]
-        US_DB[(User Database<br/>═══════<br/>Users<br/>UserAddresses<br/>UserPreferences)]
-        US_API --> US_BIZ --> US_DB
+    subgraph "COMPOSITION"
+        AGG["Platform.Aggregator<br/>parallel downstream calls<br/>partial failures + warnings<br/>REST + gRPC clients"]
     end
 
-    subgraph "PRODUCT MICROSERVICE"
-        PS_API[Product API]
-        PS_BIZ[Product Business Logic]
-        PS_DB[(Product Database<br/>═══════<br/>Categories<br/>Products<br/>ProductImages<br/>Inventory)]
-        PS_API --> PS_BIZ --> PS_DB
+    subgraph "CATALOG MICROSERVICE"
+        CAT_API["Catalog.Api<br/>/api/products"]
+        CAT_BLL["Catalog.Bll<br/>services, DTO, validators"]
+        CAT_DAL["Catalog.Dal<br/>EF Core, repositories, UoW"]
+        CAT_DB[("SQL Server<br/>CatalogDb<br/>Products / Categories<br/>ProductCategories / ProductDetails<br/>ProductImages")]
+        CAT_API --> CAT_BLL --> CAT_DAL --> CAT_DB
     end
 
-    subgraph "ORDER MICROSERVICE"
-        OS_API[Order API]
-        OS_BIZ[Order Business Logic]
-        OS_DB[(Order Database<br/>═══════<br/>Orders<br/>OrderItems<br/>OrderUserCache<br/>OrderProductCache)]
-        OS_API --> OS_BIZ --> OS_DB
+    subgraph "ORDERS MICROSERVICE"
+        ORD_API["Orders.Api<br/>/api/orders /api/customers /api/payments"]
+        ORD_BLL["Orders.Bll<br/>services, DTO, validators"]
+        ORD_DAL["Orders.Dal<br/>EF Core, repositories, UoW"]
+        ORD_DB[("SQL Server<br/>OrdersDb<br/>Customers / Orders / OrderItems<br/>Payments / OrderStatusHistory")]
+        ORD_API --> ORD_BLL --> ORD_DAL --> ORD_DB
     end
 
-    subgraph "CART MICROSERVICE"
-        CS_API[Cart API]
-        CS_BIZ[Cart Business Logic]
-        CS_DB[(Cart Database<br/>═══════<br/>Carts<br/>CartItems<br/>CartProductCache)]
-        CS_API --> CS_BIZ --> CS_DB
+    subgraph "REVIEWS MICROSERVICE"
+        REV_API["Reviews.WebApi<br/>/api/reviews /api/product-ratings /api/moderation"]
+        REV_APP["Reviews.Application<br/>CQRS MediatR + behaviors"]
+        REV_INF["Reviews.Infrastructure<br/>MongoDB repositories, transactions"]
+        REV_DB[("MongoDB<br/>BakeryReviewsDB<br/>reviews / product_ratings<br/>moderation_logs")]
+        REV_API --> REV_APP --> REV_INF --> REV_DB
     end
 
-    subgraph "PAYMENT MICROSERVICE"
-        PAS_API[Payment API]
-        PAS_BIZ[Payment Business Logic]
-        PAS_DB[(Payment Database<br/>═══════<br/>Payments<br/>PaymentMethods<br/>Transactions)]
-        PAS_API --> PAS_BIZ --> PAS_DB
+    subgraph "SHARED"
+        SD["Platform.ServiceDefaults<br/>Serilog + OpenTelemetry + health<br/>service discovery + CorrelationId"]
+        REDIS[("Redis<br/>L2 cache (lab 6)")]
+        HOST["Platform.AppHost<br/>.NET Aspire orchestration<br/>WithDataVolume + WaitFor"]
+        DASH["Aspire Dashboard<br/>logs / traces / metrics (OTLP)"]
     end
 
-    API_GW --> US_API
-    API_GW --> PS_API
-    API_GW --> OS_API
-    API_GW --> CS_API
-    API_GW --> PAS_API
-
-    US_BIZ <--> MSG
-    PS_BIZ <--> MSG
-    OS_BIZ <--> MSG
-    CS_BIZ <--> MSG
-    PAS_BIZ <--> MSG
-
-    OS_API -.->|Get User Info| US_API
-    CS_API -.->|Get Product Info| PS_API
-    CS_API -.->|Validate User| US_API
-    PAS_API -.->|Get Order Info| OS_API
-
-    US_DB -.->|User Data| OS_DB
-    PS_DB -.->|Product Data| OS_DB
-    PS_DB -.->|Product Data| CS_DB
-
-    subgraph "LEGEND"
-        L1[Master Data - Source of Truth]
-        L2[Cached Data - Replicated]
-        L3[═══ Separate Databases]
-        L4[---> API Calls]
-        L5[<--> Events]
-    end
+    WEB --> GW
+    GW -->|/api/orders, /api/customers, /api/payments| ORD_API
+    GW -->|/api/products| CAT_API
+    GW -->|/api/reviews, /api/product-ratings, /api/moderation| REV_API
+    GW -->|/api/aggregator| AGG
+    AGG -->|HTTP / gRPC| ORD_API
+    AGG -->|HTTP / gRPC| CAT_API
+    AGG -->|HTTP / gRPC| REV_API
+    AGG --> REDIS
+    ORD_API --> REDIS
+    CAT_API --> REDIS
+    REV_API --> REDIS
+    SD -.-> GW
+    SD -.-> AGG
+    SD -.-> CAT_API
+    SD -.-> ORD_API
+    SD -.-> REV_API
+    HOST -.->|orchestrates| GW
+    HOST -.-> AGG
+    HOST -.-> CAT_API
+    HOST -.-> ORD_API
+    HOST -.-> REV_API
+    HOST -.-> CAT_DB
+    HOST -.-> ORD_DB
+    HOST -.-> REV_DB
+    HOST -.-> REDIS
+    GW -.->|OTLP| DASH
+    AGG -.->|OTLP| DASH
+    CAT_API -.->|OTLP| DASH
+    ORD_API -.->|OTLP| DASH
+    REV_API -.->|OTLP| DASH
 
     classDef default fill:#ffffff,stroke:#334155,stroke-width:1px,color:#0f172a;

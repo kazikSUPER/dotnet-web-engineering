@@ -1,0 +1,79 @@
+using AutoMapper;
+using FluentValidation;
+using Microsoft.Extensions.Logging;
+using Orders.BLL.Caching;
+using Orders.BLL.Diagnostics;
+using Orders.BLL.DTOs.Payments;
+using Orders.BLL.Interfaces;
+using Orders.DAL.Interfaces;
+using Orders.Domain.Entities;
+using Orders.Domain.Exceptions;
+using Platform.EventBus.Events.Contracts;
+using Platform.EventBus.Publishing;
+using System.Diagnostics;
+using ValidationException = Orders.Domain.Exceptions.ValidationException;
+
+namespace Orders.BLL.Services;
+
+public class PaymentService(
+    IUnitOfWork uow,
+    IMapper mapper,
+    ICacheService cache,
+    IValidator<ProcessPaymentRequest> processValidator,
+    IEventPublisher eventPublisher,
+    ILogger<PaymentService> logger) : IPaymentService
+{
+    public async Task<PaymentResponseDto?> GetByOrderIdAsync(int orderId, CancellationToken ct = default) => await cache.GetOrCreateAsync(
+        CacheKeys.PaymentByOrder(orderId),
+        async token => mapper.Map<PaymentResponseDto?>(await uow.Payments.GetByOrderIdAsync(orderId, token)),
+        l1Ttl: TimeSpan.FromMinutes(2),
+        l2Ttl: TimeSpan.FromMinutes(5),
+        ct);
+
+    public async Task<PaymentResponseDto> ProcessAsync(ProcessPaymentRequest request, CancellationToken ct = default)
+    {
+        using var activity = OrdersActivitySources.Payments.StartActivity("payment.process", ActivityKind.Internal);
+        activity?.SetTag("payment.order_id", request.OrderId);
+        activity?.SetTag("payment.method", request.PaymentMethod);
+        activity?.SetTag("payment.amount", request.Amount);
+
+        await processValidator.ValidateAndThrowAsync(request, ct);
+        var order = await uow.Orders.GetWithExplicitPaymentAsync(request.OrderId, ct) ?? throw new NotFoundException(nameof(Order), request.OrderId);
+        if (order.Payment is not null) throw new BusinessConflictException("Оплата для цього замовлення вже проведена.");
+        if (order.Status is "Paid" or "Cancelled") throw new BusinessConflictException("Оплату для цього замовлення провести неможливо.");
+        if (request.Amount != order.TotalAmount) throw new ValidationException(nameof(request.Amount), "Сума оплати не відповідає вартості замовлення.");
+        var payment = new Payment(order.Id, $"TXN-{Guid.NewGuid():N}"[..16], request.PaymentMethod, request.Amount);
+        await uow.Payments.AddAsync(payment, ct);
+        order.ChangeStatus("Paid");
+        uow.Orders.Update(order);
+        await uow.SaveChangesAsync(ct);
+
+        // 6. Publish event ONLY after successful SaveChanges
+        try
+        {
+            await eventPublisher.PublishAsync(new PaymentProcessedEvent(
+                payment.TransactionNumber,
+                payment.OrderId,
+                payment.Amount,
+                payment.Status), ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to publish PaymentProcessedEvent for order {OrderId}", payment.OrderId);
+        }
+
+        activity?.SetTag("payment.transaction_number", payment.TransactionNumber);
+        activity?.SetTag("order.status", order.Status);
+
+        logger.LogInformation(
+            "Оплата {TransactionNumber} проведена для замовлення {OrderId}: сума {Amount}, спосіб {PaymentMethod}, статус замовлення {Status}",
+            payment.TransactionNumber, order.Id, payment.Amount, payment.PaymentMethod, order.Status);
+
+        const string reason = "order-paid";
+        await cache.RemoveAsync(CacheKeys.Order(order.Id), reason, ct);
+        await cache.RemoveAsync(CacheKeys.PaymentByOrder(order.Id), reason, ct);
+        await cache.RemoveAsync(CacheKeys.AggregateOrderFull(order.Id), reason, ct);
+
+        return mapper.Map<PaymentResponseDto>(payment);
+    }
+}

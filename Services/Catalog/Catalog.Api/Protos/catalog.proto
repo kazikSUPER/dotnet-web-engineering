@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package bakery.catalog.v1;
+
+option csharp_namespace = "Catalog.Api.Grpc";
+
+service CatalogService {
+  rpc GetProduct (GetProductRequest) returns (ProductReply);
+  rpc GetProductsByCategory (GetProductsByCategoryRequest) returns (ProductsByCategoryReply);
+}
+
+message GetProductRequest {
+  int32 id = 1;
+}
+
+message ProductReply {
+  int32 id = 1;
+  string name = 2;
+  string price = 3;
+  int32 stock = 4;
+  bool is_available = 5;
+}
+
+message GetProductsByCategoryRequest {
+  int32 category_id = 1;
+}
+
+message ProductInCategoryReply {
+  int32 product_id = 1;
+  string product_name = 2;
+  string price = 3;
+  int32 category_id = 4;
+  string category_name = 5;
+  string added_at = 6;
+}
+
+message ProductsByCategoryReply {
+  repeated ProductInCategoryReply items = 1;
+}

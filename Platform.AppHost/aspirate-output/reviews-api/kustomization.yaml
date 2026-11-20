@@ -1,0 +1,39 @@
+resources:
+- deployment.yaml
+- service.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+configMapGenerator:
+- name: reviews-api-env
+  literals:
+    - OTEL_DOTNET_EXPERIMENTAL_OTLP_RETRY=in_memory
+    - ASPNETCORE_FORWARDEDHEADERS_ENABLED=true
+    - Kestrel__Endpoints__Grpc__Url=http://*:5280
+    - Kestrel__Endpoints__Http__Url=http://*:5180
+    - ConnectionStrings__BakeryReviewsDB=mongodb://admin:{mongo-password-uri-encoded.value}@mongo:27017/BakeryReviewsDB?authSource=admin&amp;authMechanism=SCRAM-SHA-256
+    - BAKERYREVIEWSDB_HOST=mongo
+    - BAKERYREVIEWSDB_PORT=27017
+    - BAKERYREVIEWSDB_USERNAME=admin
+    - BAKERYREVIEWSDB_PASSWORD=l7mm9Sl5UwjIXlcfEUWlVY
+    - BAKERYREVIEWSDB_AUTHENTICATIONDATABASE=admin
+    - BAKERYREVIEWSDB_AUTHENTICATIONMECHANISM=SCRAM-SHA-256
+    - BAKERYREVIEWSDB_URI=mongodb://admin:{mongo-password-uri-encoded.value}@mongo:27017/BakeryReviewsDB?authSource=admin&amp;authMechanism=SCRAM-SHA-256
+    - BAKERYREVIEWSDB_DATABASENAME=BakeryReviewsDB
+    - MongoDb__ConnectionString=mongodb://admin:{mongo-password-uri-encoded.value}@mongo:27017/?authSource=admin&amp;authMechanism=SCRAM-SHA-256
+    - ConnectionStrings__redis=redis:6379,password=yzwPThE4crr0SGfpeJGkh5
+    - REDIS_HOST=redis
+    - REDIS_PORT=6379
+    - REDIS_PASSWORD=yzwPThE4crr0SGfpeJGkh5
+    - REDIS_URI=http://:{redis-password-uri-encoded.value}@redis:6379
+    - ConnectionStrings__messaging=amqp://guest:{messaging-password-uri-encoded.value}@messaging:5672
+    - MESSAGING_HOST=messaging
+    - MESSAGING_PORT=5672
+    - MESSAGING_USERNAME=guest
+    - MESSAGING_PASSWORD=6lBt5E8d6muq7sR7dc69Te
+    - MESSAGING_URI=amqp://guest:{messaging-password-uri-encoded.value}@messaging:5672
+    - OTEL_EXPORTER_OTLP_ENDPOINT=http://aspire-dashboard:18889
+    - OTEL_SERVICE_NAME=reviews-api
+    - ASPNETCORE_URLS=http://+:8080;
+

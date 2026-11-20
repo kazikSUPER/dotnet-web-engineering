@@ -1,0 +1,28 @@
+using System.Diagnostics.Metrics;
+
+namespace Orders.BLL.Caching;
+
+public static class CacheMetrics
+{
+    public const string MeterName = "Platform.Caching";
+
+    public static readonly Meter Meter = new(MeterName, "1.0");
+
+    public static readonly Counter<long> Hits = Meter.CreateCounter<long>(
+        "cache.hits", "count", "Number of cache reads served from L1 or L2");
+
+    public static readonly Counter<long> Misses = Meter.CreateCounter<long>(
+        "cache.misses", "count", "Number of cache reads that fell through to the source");
+
+    public static readonly Counter<long> Failures = Meter.CreateCounter<long>(
+        "cache.redis.failures", "count", "Number of Redis cache failures resulting in graceful fallback");
+
+    public static void RecordHit(string level, string cache) =>
+        Hits.Add(1, new KeyValuePair<string, object?>("level", level), new("cache", cache));
+
+    public static void RecordMiss(string level, string cache) =>
+        Misses.Add(1, new KeyValuePair<string, object?>("level", level), new("cache", cache));
+
+    public static void RecordFailure(string operation, string cache) =>
+        Failures.Add(1, new KeyValuePair<string, object?>("operation", operation), new("cache", cache));
+}

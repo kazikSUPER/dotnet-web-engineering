@@ -1,0 +1,37 @@
+resources:
+- deployment.yaml
+- service.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+configMapGenerator:
+- name: orders-api-env
+  literals:
+    - OTEL_DOTNET_EXPERIMENTAL_OTLP_RETRY=in_memory
+    - ASPNETCORE_FORWARDEDHEADERS_ENABLED=true
+    - Kestrel__Endpoints__Grpc__Url=http://*:5272
+    - Kestrel__Endpoints__Http__Url=http://*:5172
+    - ConnectionStrings__OrdersDb=Server=sql,1433;User ID=sa;Password=SqlPassword123!;TrustServerCertificate=true;Initial Catalog=OrdersDb
+    - ORDERSDB_HOST=sql
+    - ORDERSDB_PORT=1433
+    - ORDERSDB_USERNAME=sa
+    - ORDERSDB_PASSWORD=SqlPassword123!
+    - ORDERSDB_URI=mssql://sa:SqlPassword123!@sql:1433/OrdersDb
+    - ORDERSDB_JDBCCONNECTIONSTRING=jdbc:sqlserver://sql:1433;databaseName=OrdersDb;trustServerCertificate=true
+    - ORDERSDB_DATABASENAME=OrdersDb
+    - ConnectionStrings__redis=redis:6379,password=yzwPThE4crr0SGfpeJGkh5
+    - REDIS_HOST=redis
+    - REDIS_PORT=6379
+    - REDIS_PASSWORD=yzwPThE4crr0SGfpeJGkh5
+    - REDIS_URI=http://:{redis-password-uri-encoded.value}@redis:6379
+    - ConnectionStrings__messaging=amqp://guest:{messaging-password-uri-encoded.value}@messaging:5672
+    - MESSAGING_HOST=messaging
+    - MESSAGING_PORT=5672
+    - MESSAGING_USERNAME=guest
+    - MESSAGING_PASSWORD=6lBt5E8d6muq7sR7dc69Te
+    - MESSAGING_URI=amqp://guest:{messaging-password-uri-encoded.value}@messaging:5672
+    - OTEL_EXPORTER_OTLP_ENDPOINT=http://aspire-dashboard:18889
+    - OTEL_SERVICE_NAME=orders-api
+    - ASPNETCORE_URLS=http://+:8080;
+
