@@ -1,6 +1,7 @@
 using Orders.BLL.DTOs.Payments;
 using Orders.BLL.Interfaces;
 using Microsoft.AspNetCore.Mvc;
+using Platform.Auth.Attributes;
 
 namespace Orders.API.Controllers;
 
@@ -9,6 +10,7 @@ namespace Orders.API.Controllers;
 public class PaymentsController(IPaymentService service) : ControllerBase
 {
     [HttpGet("order/{orderId:int}")]
+    [RequirePermission("payments.read")]
     public async Task<ActionResult<PaymentResponseDto>> GetByOrderId(int orderId, CancellationToken ct)
     {
         var result = await service.GetByOrderIdAsync(orderId, ct);
@@ -16,6 +18,7 @@ public class PaymentsController(IPaymentService service) : ControllerBase
     }
 
     [HttpPost]
+    [RequirePermission("payments.write")]
     public async Task<ActionResult<PaymentResponseDto>> Process(ProcessPaymentRequest request, CancellationToken ct)
     {
         var result = await service.ProcessAsync(request, ct);

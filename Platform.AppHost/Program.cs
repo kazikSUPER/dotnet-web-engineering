@@ -8,6 +8,8 @@ var sql = builder.AddSqlServer("sql", sqlPassword)
 
 var catalogDb = sql.AddDatabase("CatalogDb");
 var ordersDb = sql.AddDatabase("OrdersDb");
+var identityDb = sql.AddDatabase("IdentityDb");
+var identityServerDb = sql.AddDatabase("IdentityServerDb");
 
 var redis = builder.AddRedis("redis")
     .WithContainerName("dotnet-web-redis")
@@ -23,6 +25,27 @@ var messaging = builder.AddRabbitMQ("messaging")
     .WithContainerName("dotnet-web-rabbitmq")
     .WithDataVolume("dotnet-web-rabbitmq-data")
     .WithManagementPlugin();
+
+var keycloak = builder.AddContainer("keycloak", "quay.io/keycloak/keycloak", "26.0")
+    .WithContainerName("dotnet-web-keycloak")
+    .WithHttpEndpoint(port: 8080, targetPort: 8080, name: "http")
+    .WithEnvironment("KEYCLOAK_ADMIN", "admin")
+    .WithEnvironment("KEYCLOAK_ADMIN_PASSWORD", "admin")
+    .WithArgs("start-dev");
+
+var auth = builder.AddProject<Projects.Auth_Api>("auth-api")
+    .WithReference(identityDb)
+    .WithHttpEndpoint(port: 5300, targetPort: 5300, name: "http", isProxied: false)
+    .WithHttpHealthCheck("/health/ready")
+    .WaitFor(identityDb);
+
+var identityServer = builder.AddProject<Projects.Platform_IdentityServer>("identityserver")
+    .WithReference(identityServerDb)
+    .WithHttpEndpoint(port: 5400, targetPort: 5400, name: "http", isProxied: false)
+    .WaitFor(identityServerDb);
+
+var payments = builder.AddProject<Projects.Payments_Api>("payments-api")
+    .WithHttpEndpoint(port: 5185, targetPort: 5185, name: "http", isProxied: false);
 
 var catalog = builder.AddProject<Projects.Catalog_Api>("catalog-api")
     .WithReference(catalogDb)
@@ -81,12 +104,16 @@ builder.AddProject<Projects.Platform_ApiGateway>("gateway")
     .WithReference(orders)
     .WithReference(reviews)
     .WithReference(aggregator)
+    .WithReference(auth)
+    .WithReference(identityServer)
+    .WithReference(payments)
     .WithHttpEndpoint(port: 5000, name: "http")
     .WithHttpHealthCheck("/health/ready")
     .WaitFor(catalog)
     .WaitFor(orders)
     .WaitFor(reviews)
     .WaitFor(aggregator)
+    .WaitFor(auth)
     .WithExternalHttpEndpoints();
 
 builder.Build().Run();

@@ -595,6 +595,26 @@ Aggregator 2.4 + обсервабіліті 1.3 = **11.0**.
 | 12 | Передача контексту трасування через брокер | 1.0 | `RabbitMqEventPublisher.cs`: додає заголовок `traceparent` до властивостей повідомлення. `RabbitMqConsumerBackgroundService.cs`: витягує W3C traceparent і створює `Activity` типу `ActivityKind.Consumer` з тегами `messaging.system = "rabbitmq"`, `messaging.destination = queueName`, `messaging.operation = "receive"`. Додано `AddSource("Platform.EventBus")` у `Platform.ServiceDefaults`. |
 | 13 | Структуроване логування збоїв з бізнес-контекстом | 0.4 | `EventId`, тип події, ідентифікатори сутностей (`ProductId`, `OrderId`, `ReviewId`), `CorrelationId` фіксуються у логах обробки та помилок. |
 
+### 6.5. Лабораторна №9 (13 критеріїв → 13 балів)
+
+Аутентифікація та авторизація в мікросервісній архітектурі: ASP.NET Identity + JWT, IdentityServer, Keycloak + Pulumi.
+
+| № | Критерій | Вага | Де реалізовано / Що перевіряється |
+|---|---|---|---|
+| 1 | Auth Service на ASP.NET Identity з окремою базою через Aspire | 0.8 | `Services/Auth/Auth.Api`: `ApplicationDbContext` з базою `IdentityDb` через Aspire; `ApplicationUser : IdentityUser`, налаштування паролів та блокування (lockout). Згенеровано міграції `InitialIdentity`. |
+| 2 | JWT-сервіс: access 15 хв і refresh 7 днів з ротацією | 1.4 | `Services/Auth/Auth.Api/Services/JwtTokenService.cs`: claims `sub`, `username`, `roles`, `email`, `jti`; refresh-токени зберігаються в БД; при кожному оновленні старий токен відкликається (`RevokedAt`), новий видається в `HttpOnly` cookie. |
+| 3 | Ендпоінти register / login / refresh-token / revoke-token / logout | 1.1 | `Services/Auth/Auth.Api/Endpoints/AuthEndpoints.cs`: реєстрація надає роль `User`; login повертає access token у тілі відповіді та refresh token у HttpOnly cookie; revoke та logout відкликають токен та очищають cookie. |
+| 4 | Підтвердження email, відновлення та зміна пароля | 1.0 | `AuthEndpoints.cs`: `verify-email` та `resend-verification` (вхід заблоковано для непідтверджених email: `RequireConfirmedEmail = true`); `forgot-password` та `reset-password` (при скиданні пароля ревокуються ВСІ активні refresh-токени); `change-password`. |
+| 5 | Ролі `User` / `Admin` та захищені ендпоінти `/users` | 0.8 | `Services/Auth/Auth.Api/Endpoints/UsersEndpoints.cs`: ролі створюються при старті; ендпоінти `/users` (list, delete) доступні лише для `Admin`; перегляд та редагування дозволені лише `Admin` або власнику акаунта. |
+| 6 | Gateway маршрутизує `/auth` і `/users`, мікросервіси валідують JWT | 0.8 | `Platform.ApiGateway/appsettings.json`: YARP-маршрути `/auth/{**catch-all}` та `/users/{**catch-all}` на `auth-api`, `/api/payments/{**catch-all}` на `payments-api`; `AddPlatformAuthentication` та `AddPlatformAuthorization` у мікросервісах Catalog, Orders, Reviews. |
+| 7 | IdentityServer з окремою базою, ASP.NET Identity і EF-сховищами | 1.1 | `Platform.IdentityServer`: `AddIdentityServer().AddAspNetIdentity<IdentityUser>().AddConfigurationStore().AddOperationalStore()`; окрема база `IdentityServerDb`; підтримка Quickstart UI. |
+| 8 | ApiResources, ApiScopes і три clients | 1.0 | `Platform.IdentityServer/Config.cs`: клієнт `postman` (Authorization Code + PKCE), клієнт `aggregator` (Client Credentials M2M), клієнт `swagger` (Public client з PKCE без секрету); ApiScopes та ApiResources для всіх мікросервісів. |
+| 9 | Мікросервіси приймають токени IdentityServer зі scope-based політиками | 0.8 | `Platform.Auth`: `AuthenticationExtensions.cs` підтримує перевірку Authority та скоупів для M2M взаємодії Aggregator та сервісів. |
+| 10 | Keycloak розгорнуто через Aspire | 0.8 | `Platform.AppHost/Program.cs`: `AddContainer("keycloak", "quay.io/keycloak/keycloak", "26.0")` з портом 8080 та адмінськими креденшлами. |
+| 11 | Pulumi описує realm, resource servers зі scopes і ролі за матрицею | 1.2 | `infra/keycloak/`: Pulumi C# проєкт описує realm `BakeryRealm`, resource servers `orders-api`, `products-api`, `payments-api`, та ролі `admin`, `manager`, `user`, `guest` згідно з матрицею прав. |
+| 12 | Clients і тестові користувачі створюються через Pulumi | 0.8 | `infra/keycloak/Clients.cs` та `Users.cs`: клієнти `platform-web` (Code) та `platform-aggregator` (Client Credentials); тестові користувачі для кожної ролі (`admin_user`, `manager_user`, `regular_user`, `guest_user`) з призначеними ролями. |
+| 13 | Permission-based авторизація `[RequirePermission]` на кожному ендпоінті | 1.4 | `Platform.Auth/Attributes/RequirePermissionAttribute.cs`: атрибут встановлено на всіх публічних ендпоінтах Catalog, Orders, Reviews та Payments. Ендпоінти оплат доступні виключно ролі `Admin`. |
+
 ---
 
 ## 7. Додаток: рішення лабораторних №2–4
@@ -628,6 +648,7 @@ Aggregator 2.4 + обсервабіліті 1.3 = **11.0**.
 | №6 | gRPC + дворівневе кешування Memory/Redis | виконано (`lab-06`) |
 | №7 | Резильєнтність, метрики та Health Checks | здано на перевірку (`lab-07`) |
 | №8 | Подієва мікросервісна архітектура з RabbitMQ | виконано (`lab-08`) |
+| №9 | Аутентифікація та авторизація (Identity, IdentityServer, Keycloak) | виконано (`lab-09`) |
 
 ## 9. Корисні команди
 

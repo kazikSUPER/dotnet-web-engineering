@@ -13,6 +13,7 @@ using Orders.DAL.Data;
 using Orders.DAL.Interfaces;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
+using Platform.Auth;
 using Platform.ServiceDefaults;
 using Serilog;
 
@@ -26,6 +27,9 @@ builder.Services.AddOrdersIntegrationEvents();
 
 builder.Services.AddSingleton<OrdersMetrics>();
 builder.Services.AddOrdersHealthChecks(builder.Configuration);
+
+builder.Services.AddPlatformAuthentication(builder.Configuration);
+builder.Services.AddPlatformAuthorization();
 
 builder.Services.AddDbContext<OrdersDbContext>(options => options
     .UseSqlServer(builder.Configuration.GetConnectionString("OrdersDb"), sql => sql.EnableRetryOnFailure(20, TimeSpan.FromSeconds(5), null))
@@ -60,6 +64,8 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.UsePlatformDefaults("Orders.Api");
+app.UseAuthentication();
+app.UseAuthorization();
 app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
 app.UseSwagger();
 app.UseSwaggerUI();

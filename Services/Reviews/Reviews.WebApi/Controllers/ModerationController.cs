@@ -3,6 +3,7 @@ using Bakery.Reviews.Application.DTOs;
 using Bakery.Reviews.Application.Queries;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
+using Platform.Auth.Attributes;
 
 namespace Bakery.Reviews.WebApi.Controllers;
 
@@ -11,6 +12,7 @@ namespace Bakery.Reviews.WebApi.Controllers;
 public sealed class ModerationController(ISender sender) : ControllerBase
 {
     [HttpPost("reviews/{id}")]
+    [RequirePermission("reviews.moderate")]
     public async Task<ActionResult<ReviewDto>> Moderate(
         string id,
         [FromBody] ModerateReviewCommand command,
@@ -24,6 +26,7 @@ public sealed class ModerationController(ISender sender) : ControllerBase
     }
 
     [HttpPost("reviews/{id}/admin-response")]
+    [RequirePermission("reviews.moderate")]
     public async Task<ActionResult<ReviewDto>> AddAdminResponse(
         string id,
         [FromBody] AddAdminResponseCommand command,
@@ -39,6 +42,7 @@ public sealed class ModerationController(ISender sender) : ControllerBase
     }
 
     [HttpGet("logs")]
+    [RequirePermission("reviews.moderate")]
     public async Task<ActionResult<ModerationLogPageDto>> Logs(
         [FromQuery] string? reviewId,
         [FromQuery] int limit = 20,

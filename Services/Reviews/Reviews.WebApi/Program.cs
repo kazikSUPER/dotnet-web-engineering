@@ -8,6 +8,7 @@ using Bakery.Reviews.Infrastructure.Initialization;
 using Bakery.Reviews.Infrastructure.Seeding;
 using Bakery.Reviews.WebApi.Middleware;
 using Microsoft.OpenApi;
+using Platform.Auth;
 using Platform.ServiceDefaults;
 using Reviews.WebApi.Grpc;
 using Reviews.WebApi.HealthChecks;
@@ -22,6 +23,9 @@ builder.AddServiceDefaults(ReviewsActivitySources.SourceNames);
 
 builder.Services.AddSingleton<ReviewsMetrics>();
 builder.Services.AddReviewsHealthChecks(builder.Configuration);
+
+builder.Services.AddPlatformAuthentication(builder.Configuration);
+builder.Services.AddPlatformAuthorization();
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
@@ -50,6 +54,8 @@ var app = builder.Build();
 await InitializeDatabaseAsync(app);
 
 app.UsePlatformDefaults("Reviews.WebApi");
+app.UseAuthentication();
+app.UseAuthorization();
 app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
 
 app.UseSwagger();

@@ -1,6 +1,7 @@
 using Orders.BLL.DTOs.Customers;
 using Orders.BLL.Interfaces;
 using Microsoft.AspNetCore.Mvc;
+using Platform.Auth.Attributes;
 
 namespace Orders.API.Controllers;
 
@@ -9,9 +10,11 @@ namespace Orders.API.Controllers;
 public class CustomersController(ICustomerService service) : ControllerBase
 {
     [HttpGet]
+    [RequirePermission("customers.read")]
     public async Task<ActionResult<IReadOnlyList<CustomerResponseDto>>> GetAll(CancellationToken ct) => Ok(await service.GetAllAsync(ct));
 
     [HttpGet("{id:int}")]
+    [RequirePermission("customers.read")]
     public async Task<ActionResult<CustomerResponseDto>> GetById(int id, CancellationToken ct)
     {
         var result = await service.GetByIdAsync(id, ct);
@@ -19,6 +22,7 @@ public class CustomersController(ICustomerService service) : ControllerBase
     }
 
     [HttpPost]
+    [RequirePermission("customers.write")]
     public async Task<ActionResult<CustomerResponseDto>> Create(CreateCustomerRequest request, CancellationToken ct)
     {
         var result = await service.CreateAsync(request, ct);
@@ -26,6 +30,7 @@ public class CustomersController(ICustomerService service) : ControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [RequirePermission("customers.write")]
     public async Task<IActionResult> Update(int id, UpdateCustomerRequest request, CancellationToken ct)
     {
         await service.UpdateAsync(id, request, ct);
@@ -33,6 +38,7 @@ public class CustomersController(ICustomerService service) : ControllerBase
     }
 
     [HttpDelete("{id:int}")]
+    [RequirePermission("customers.write")]
     public async Task<IActionResult> Delete(int id, CancellationToken ct)
     {
         await service.DeleteAsync(id, ct);

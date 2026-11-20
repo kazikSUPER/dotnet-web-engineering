@@ -11,6 +11,7 @@ using Catalog.BLL.Services;
 using Catalog.DAL.Data;
 using Catalog.DAL.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using Platform.Auth;
 using Platform.ServiceDefaults;
 using Serilog;
 
@@ -24,6 +25,9 @@ builder.Services.AddCatalogIntegrationEvents();
 
 builder.Services.AddSingleton<CatalogMetrics>();
 builder.Services.AddCatalogHealthChecks(builder.Configuration);
+
+builder.Services.AddPlatformAuthentication(builder.Configuration);
+builder.Services.AddPlatformAuthorization();
 
 builder.Services.AddDbContext<CatalogDbContext>(options => options
     .UseSqlServer(builder.Configuration.GetConnectionString("CatalogDb"), sql => sql.EnableRetryOnFailure(20, TimeSpan.FromSeconds(5), null))
@@ -55,6 +59,8 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.UsePlatformDefaults("Catalog.Api");
+app.UseAuthentication();
+app.UseAuthorization();
 app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
 app.UseSwagger();
 app.UseSwaggerUI();
