@@ -1,6 +1,7 @@
 using Orders.API.Middleware;
 using Orders.Api.Grpc;
 using Orders.Api.HealthChecks;
+using Orders.Api.IntegrationEvents;
 using Orders.Api.Metrics;
 using Orders.BLL.Caching;
 using Orders.BLL.Diagnostics;
@@ -19,6 +20,9 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Host.UsePlatformSerilog("Orders.Api");
 builder.AddServiceDefaults(OrdersActivitySources.SourceNames);
+
+builder.AddRabbitMQClient("messaging");
+builder.Services.AddOrdersIntegrationEvents();
 
 builder.Services.AddSingleton<OrdersMetrics>();
 builder.Services.AddOrdersHealthChecks(builder.Configuration);

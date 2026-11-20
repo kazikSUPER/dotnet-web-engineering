@@ -8,4 +8,7 @@ public interface IProductService
     Task<IReadOnlyList<ProductInCategoryDto>> GetByCategoryAsync(int categoryId, DateTime? notEarlierThan = null, CancellationToken ct = default);
 
     Task<ProductDto?> GetByIdAsync(int id, CancellationToken ct = default);
+    Task<ProductDto> CreateProductAsync(string name, decimal price, int stock, int categoryId, string categoryName, CancellationToken ct = default);
+    Task<ProductDto?> RenameProductAsync(int productId, string newName, CancellationToken ct = default);
+    Task<ProductDto?> UpdatePriceAsync(int productId, decimal newPrice, CancellationToken ct = default);
 }

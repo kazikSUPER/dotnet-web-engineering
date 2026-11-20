@@ -12,6 +12,7 @@ public sealed class MongoIndexInitializer(MongoDbContext db, ILogger<MongoIndexI
         await EnsureReviewsIndexesAsync(ct);
         await EnsureProductRatingIndexesAsync(ct);
         await EnsureModerationLogIndexesAsync(ct);
+        await EnsureProcessedEventsIndexesAsync(ct);
 
         logger.LogInformation("Індекси MongoDB перевірено та створено за потреби");
     }
@@ -79,5 +80,15 @@ public sealed class MongoIndexInitializer(MongoDbContext db, ILogger<MongoIndexI
         };
 
         await db.ModerationLogs.Indexes.CreateManyAsync(models, ct);
+    }
+
+    private async Task EnsureProcessedEventsIndexesAsync(CancellationToken ct)
+    {
+        var keys = Builders<ProcessedEventDocument>.IndexKeys;
+        await db.ProcessedEvents.Indexes.CreateOneAsync(
+            new CreateIndexModel<ProcessedEventDocument>(
+                keys.Ascending(x => x.EventId),
+                new CreateIndexOptions { Name = "ux_processed_events_event_id", Unique = true }),
+            cancellationToken: ct);
     }
 }

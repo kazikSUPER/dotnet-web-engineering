@@ -126,6 +126,7 @@ public static class Extensions
                 .AddMeter("Reviews.WebApi")
                 .AddMeter("Platform.Aggregator")
                 .AddMeter("Platform.Caching")
+                .AddMeter("Platform.EventBus")
                 .AddMeter("Polly"))
             .WithTracing(tracing =>
             {
@@ -134,6 +135,7 @@ public static class Extensions
                     .AddSqlClientInstrumentation()
                     .AddSource(MongoDbInstrumentation.ActivitySourceName)
                     .AddSource(PlatformActivitySource.Name)
+                    .AddSource("Platform.EventBus")
                     .AddSource("Grpc.Net.Client")
                     .AddSource("grpc.server");
 

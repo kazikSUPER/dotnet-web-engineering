@@ -575,6 +575,26 @@ Aggregator 2.4 + обсервабіліті 1.3 = **11.0**.
 
 Живі докази по критеріях 4, 5, 9, 11, 12 — у §4.2.
 
+### 6.4. Лабораторна №8 (13 критеріїв → 11 балів)
+
+Подієва мікросервісна архітектура на основі брокера повідомлень RabbitMQ.
+
+| № | Критерій | Вага | Де реалізовано / Що перевіряється |
+|---|---|---|---|
+| 1 | RabbitMQ в AppHost з volume і Management UI | 0.6 | `Platform.AppHost/Program.cs`: `AddRabbitMQ("messaging").WithContainerName("dotnet-web-rabbitmq").WithDataVolume("dotnet-web-rabbitmq-data").WithManagementPlugin()`. Підключено `.WithReference(messaging).WaitFor(messaging)` до Catalog, Orders та Reviews. |
+| 2 | Підключення через `Aspire.RabbitMQ.Client` (RabbitMQ.Client 7.x) | 0.4 | `Platform.EventBus`: `Aspire.RabbitMQ.Client` (13.6.4) та `RabbitMQ.Client` (7.2.2). У `Program.cs` сервісів Catalog, Orders, Reviews: `builder.AddRabbitMQClient("messaging")` реєструє `IConnection` з health check; асинхронний API `IChannel` (`CreateChannelAsync`, `BasicPublishAsync`, `BasicConsumeAsync`). |
+| 3 | Декларативна топологія при старті: topic exchange, черги, bindings, DLX/DLQ | 1.1 | `Platform.EventBus/Topology/`: `RabbitMqTopologyHostedService` декларує topic exchange `platform.events`, dead-letter exchange `platform.events.dlx`, окремі черги для кожного споживача (`q.orders.catalog-events`, `q.reviews.catalog-events`, `q.catalog.review-events`) з аргументами `x-dead-letter-exchange`, та DLQ (`<queue>.dlq`). |
+| 4 | Незмінні integration events з `EventId` і `CorrelationId` | 0.8 | `Platform.EventBus/Events/IntegrationEvent.cs`: абстрактний незмінний record з `EventId` (Guid), `OccurredAt` (DateTimeOffset), `CorrelationId` (string). Доменні події у минулому часі (`ProductCreatedEvent`, `ProductRenamedEvent`, `ProductPriceChangedEvent`, `CategoryUpdatedEvent`, `OrderPlacedEvent`, `OrderStatusChangedEvent`, `PaymentProcessedEvent`, `ReviewCreatedEvent`, `ReviewModeratedEvent`). |
+| 5 | `IEventPublisher` з persistent-публікацією в JSON | 1.0 | `Platform.EventBus/Publishing/RabbitMqEventPublisher.cs`: серіалізація camelCase JSON; `BasicProperties` з `DeliveryModes.Persistent`, `ContentType = "application/json"`, `MessageId = EventId`, `Type = EventTypeName`, `x-correlation-id = CorrelationId`; структуроване логування публікації. |
+| 6 | Події публікуються лише після успішного збереження змін | 0.8 | `ProductService.cs`, `OrderService.cs`, `PaymentService.cs`, `CreateReviewCommandHandler.cs`, `ModerateReviewCommandHandler.cs`: публікація `eventPublisher.PublishAsync(...)` викликається виключно після успішного `SaveChangesAsync()` / `Commit()`. При збої транзакції подія не публікується. |
+| 7 | Consumer як `BackgroundService` з ручним підтвердженням | 1.0 | `Platform.EventBus/Consuming/RabbitMqConsumerBackgroundService.cs`: спадкоємець `BackgroundService`, налаштування `BasicQosAsync(prefetchCount: 10)`, `AsyncEventingBasicConsumer`, `BasicConsumeAsync(autoAck: false)`, коректне завершення за `stoppingToken`. |
+| 8 | Ack після успіху, Nack без requeue для постійних збоїв | 0.8 | `RabbitMqConsumerBackgroundService.cs`: успішна обробка підтверджується `BasicAckAsync(deliveryTag, false)`; невідомі/несумісні формати та постійні помилки відправляються у DLQ через `BasicNackAsync(deliveryTag, false, requeue: false)` з логуванням. |
+| 9 | Ідемпотентні обробники з таблицею оброблених подій | 1.1 | Кожен обробник подій (`IntegrationEvents/Handlers/`) перевіряє наявність `EventId` у таблиці `ProcessedEvents` (SQL) або колекції `processed_events` (MongoDB) в межах тієї ж транзакції та пропускає дублікати. |
+| 10 | Реплікація копій даних за політикою дублювання Лаб. 01 | 1.1 | `Orders.Api`: оновлення локального довідника товарів `dbo.Products` (без перезапису цін у оформлених `OrderItems`); `Reviews.WebApi`: оновлення денормалізованої `productName` у всіх відгуках товару; `Catalog.Api`: синхронізація рейтингу та кількості відгуків. |
+| 11 | Повтори з лічильником `x-retry-count` і максимумом спроб | 0.9 | `RabbitMqConsumerBackgroundService.cs`: при збоях витягує заголовок `x-retry-count`, якщо `< 3` — перепубліковує зі збільшеним лічильником та робить Ack оригіналу; при перевищенні ліміту — Nack без requeue для потрапляння в DLQ. |
+| 12 | Передача контексту трасування через брокер | 1.0 | `RabbitMqEventPublisher.cs`: додає заголовок `traceparent` до властивостей повідомлення. `RabbitMqConsumerBackgroundService.cs`: витягує W3C traceparent і створює `Activity` типу `ActivityKind.Consumer` з тегами `messaging.system = "rabbitmq"`, `messaging.destination = queueName`, `messaging.operation = "receive"`. Додано `AddSource("Platform.EventBus")` у `Platform.ServiceDefaults`. |
+| 13 | Структуроване логування збоїв з бізнес-контекстом | 0.4 | `EventId`, тип події, ідентифікатори сутностей (`ProductId`, `OrderId`, `ReviewId`), `CorrelationId` фіксуються у логах обробки та помилок. |
+
 ---
 
 ## 7. Додаток: рішення лабораторних №2–4
@@ -605,7 +625,9 @@ Aggregator 2.4 + обсервабіліті 1.3 = **11.0**.
 | №3 | EF Core Code-First, специфікації, валідація | виконано (`lab-03`, доопрацювання в `lab-04`) |
 | №4 | Clean Architecture + CQRS + MongoDB (Reviews) | виконано (`lab-04`) |
 | №5 | Мікросервісна платформа: AppHost, ServiceDefaults, Gateway, Aggregator | здано (`lab-05`) |
-| №6 | gRPC + дворівневе кешування Memory/Redis | реалізовано й перевірено на живій платформі, ще не здано (`lab-06`) |
+| №6 | gRPC + дворівневе кешування Memory/Redis | виконано (`lab-06`) |
+| №7 | Резильєнтність, метрики та Health Checks | здано на перевірку (`lab-07`) |
+| №8 | Подієва мікросервісна архітектура з RabbitMQ | виконано (`lab-08`) |
 
 ## 9. Корисні команди
 

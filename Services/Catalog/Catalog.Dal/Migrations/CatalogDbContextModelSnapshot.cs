@@ -60,6 +60,25 @@ namespace Catalog.Dal.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Catalog.Domain.Entities.ProcessedEvent", b =>
+                {
+                    b.Property<Guid>("EventId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<DateTime>("ProcessedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("EventId");
+
+                    b.ToTable("ProcessedEvents");
+                });
+
             modelBuilder.Entity("Catalog.Domain.Entities.Product", b =>
                 {
                     b.Property<int>("Id")
@@ -68,6 +87,9 @@ namespace Catalog.Dal.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<double>("AverageRating")
+                        .HasColumnType("float");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -75,6 +97,9 @@ namespace Catalog.Dal.Migrations
 
                     b.Property<decimal>("Price")
                         .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("ReviewsCount")
+                        .HasColumnType("int");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()

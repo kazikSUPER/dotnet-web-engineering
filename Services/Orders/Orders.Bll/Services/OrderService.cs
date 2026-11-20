@@ -9,6 +9,8 @@ using Orders.BLL.Specifications;
 using Orders.DAL.Interfaces;
 using Orders.Domain.Entities;
 using Orders.Domain.Exceptions;
+using Platform.EventBus.Events.Contracts;
+using Platform.EventBus.Publishing;
 using System.Diagnostics;
 
 namespace Orders.BLL.Services;
@@ -19,6 +21,7 @@ public class OrderService(
     ICacheService cache,
     IValidator<CreateOrderRequest> createValidator,
     IValidator<UpdateOrderStatusRequest> statusValidator,
+    IEventPublisher eventPublisher,
     ILogger<OrderService> logger) : IOrderService
 {
     public async Task<OrderResponseDto?> GetByIdAsync(int id, CancellationToken ct = default) => await cache.GetOrCreateAsync(
@@ -64,6 +67,20 @@ public class OrderService(
         await uow.SaveChangesAsync(ct);
         var created = await uow.Orders.GetWithDetailsAsync(order.Id, ct);
 
+        // 6. Publish event ONLY after successful SaveChanges
+        try
+        {
+            await eventPublisher.PublishAsync(new OrderPlacedEvent(
+                order.Id,
+                order.OrderNumber,
+                order.CustomerId,
+                order.TotalAmount), ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to publish OrderPlacedEvent for order {OrderId}", order.Id);
+        }
+
         activity?.SetTag("order.id", order.Id);
         activity?.SetTag("order.number", order.OrderNumber);
         activity?.SetTag("order.customer_id", order.CustomerId);
@@ -85,6 +102,19 @@ public class OrderService(
         order.ChangeStatus(request.NewStatus);
         uow.Orders.Update(order);
         await uow.SaveChangesAsync(ct);
+
+        // 6. Publish event ONLY after successful SaveChanges
+        try
+        {
+            await eventPublisher.PublishAsync(new OrderStatusChangedEvent(
+                order.Id,
+                previousStatus,
+                order.Status), ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to publish OrderStatusChangedEvent for order {OrderId}", order.Id);
+        }
 
         activity?.SetTag("order.id", order.Id);
         activity?.SetTag("order.status.previous", previousStatus);

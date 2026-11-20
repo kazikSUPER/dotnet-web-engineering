@@ -11,6 +11,7 @@ using Microsoft.OpenApi;
 using Platform.ServiceDefaults;
 using Reviews.WebApi.Grpc;
 using Reviews.WebApi.HealthChecks;
+using Reviews.WebApi.IntegrationEvents;
 using Reviews.WebApi.Metrics;
 using Serilog;
 
@@ -24,6 +25,9 @@ builder.Services.AddReviewsHealthChecks(builder.Configuration);
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
+
+builder.AddRabbitMQClient("messaging");
+builder.Services.AddReviewsIntegrationEvents();
 
 builder.AddRedisDistributedCache("redis");
 builder.Services.AddSingleton<ICacheService, TwoLevelCacheService>();

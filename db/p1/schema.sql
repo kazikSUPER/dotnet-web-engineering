@@ -173,3 +173,11 @@ WHERE IsDeleted = 0;
 CREATE NONCLUSTERED INDEX IX_Payments_TransactionNumber 
 ON dbo.Payments (TransactionNumber) 
 INCLUDE (Amount, Status, PaymentDate);
+
+-- 5. Таблиця оброблених подій (ProcessedEvents) для забезпечення ідемпотентності
+IF OBJECT_ID('dbo.ProcessedEvents', 'U') IS NOT NULL DROP TABLE dbo.ProcessedEvents;
+CREATE TABLE dbo.ProcessedEvents (
+    EventId NVARCHAR(128) PRIMARY KEY,
+    EventType NVARCHAR(128) NOT NULL,
+    ProcessedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+);

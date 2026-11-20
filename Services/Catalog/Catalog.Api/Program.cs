@@ -1,6 +1,7 @@
 using Catalog.API.Middleware;
 using Catalog.Api.Grpc;
 using Catalog.Api.HealthChecks;
+using Catalog.Api.IntegrationEvents;
 using Catalog.Api.Metrics;
 using Catalog.BLL.Caching;
 using Catalog.BLL.Diagnostics;
@@ -17,6 +18,9 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Host.UsePlatformSerilog("Catalog.Api");
 builder.AddServiceDefaults(CatalogActivitySources.SourceNames);
+
+builder.AddRabbitMQClient("messaging");
+builder.Services.AddCatalogIntegrationEvents();
 
 builder.Services.AddSingleton<CatalogMetrics>();
 builder.Services.AddCatalogHealthChecks(builder.Configuration);

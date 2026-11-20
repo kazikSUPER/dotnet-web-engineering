@@ -8,6 +8,8 @@ using Bakery.Reviews.Domain.Exceptions;
 using Bakery.Reviews.Domain.Interfaces;
 using MediatR;
 using Microsoft.Extensions.Logging;
+using Platform.EventBus.Events.Contracts;
+using Platform.EventBus.Publishing;
 using System.Diagnostics;
 
 namespace Bakery.Reviews.Application.Commands;
@@ -26,8 +28,10 @@ public sealed record CreateReviewCommand(
 
 public sealed class CreateReviewCommandHandler(
     IReviewRepository reviews,
+    IProductRatingRepository ratings,
     IReviewQueries queries,
     ICacheService cache,
+    IEventPublisher eventPublisher,
     ILogger<CreateReviewCommandHandler> logger) : IRequestHandler<CreateReviewCommand, ReviewDto>
 {
     public async Task<ReviewDto> Handle(CreateReviewCommand request, CancellationToken ct)
@@ -47,6 +51,23 @@ public sealed class CreateReviewCommandHandler(
             request.Tags);
 
         await reviews.AddAsync(review, ct);
+
+        // 6. Publish event ONLY after successful commit
+        try
+        {
+            var rating = await ratings.GetByProductIdAsync(review.ProductId, ct);
+            await eventPublisher.PublishAsync(new ReviewCreatedEvent(
+                review.Id.ToString(),
+                review.ProductId,
+                review.CustomerId,
+                (int)Math.Round(review.Ratings.Average),
+                rating?.AverageScore ?? review.Ratings.Average,
+                rating?.TotalReviews ?? 1), ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to publish ReviewCreatedEvent for review {ReviewId}", review.Id);
+        }
 
         activity?.SetTag("review.id", review.Id.ToString());
         activity?.SetTag("review.product_id", review.ProductId);

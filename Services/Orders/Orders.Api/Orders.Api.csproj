@@ -25,6 +25,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\..\Platform.EventBus\Platform.EventBus.csproj" />
     <ProjectReference Include="..\..\..\Platform.ServiceDefaults\Platform.ServiceDefaults.csproj" />
     <ProjectReference Include="..\Orders.Bll\Orders.Bll.csproj" />
     <ProjectReference Include="..\Orders.Dal\Orders.Dal.csproj" />

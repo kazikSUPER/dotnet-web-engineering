@@ -40,6 +40,9 @@ public sealed class MongoDbContext(
     public IMongoCollection<ModerationLog> ModerationLogs =>
         Database.GetCollection<ModerationLog>(settings.ModerationLogsCollectionName);
 
+    public IMongoCollection<ProcessedEventDocument> ProcessedEvents =>
+        Database.GetCollection<ProcessedEventDocument>("processed_events");
+
     public void Dispose()
     {
         scopeSession?.Dispose();

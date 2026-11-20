@@ -19,36 +19,47 @@ var mongo = builder.AddMongoDB("mongo")
 
 var reviewsDb = mongo.AddDatabase("BakeryReviewsDB");
 
+var messaging = builder.AddRabbitMQ("messaging")
+    .WithContainerName("dotnet-web-rabbitmq")
+    .WithDataVolume("dotnet-web-rabbitmq-data")
+    .WithManagementPlugin();
+
 var catalog = builder.AddProject<Projects.Catalog_Api>("catalog-api")
     .WithReference(catalogDb)
     .WithReference(redis)
+    .WithReference(messaging)
     .WithHttpEndpoint(port: 5173, targetPort: 5173, name: "http", isProxied: false)
     .WithHttpEndpoint(port: 5273, targetPort: 5273, name: "grpc", isProxied: false)
     .WithEndpoint("grpc", endpoint => endpoint.ExcludeReferenceEndpoint = true)
     .WithHttpHealthCheck("/health/ready")
     .WaitFor(catalogDb)
-    .WaitFor(redis);
+    .WaitFor(redis)
+    .WaitFor(messaging);
 
 var orders = builder.AddProject<Projects.Orders_Api>("orders-api")
     .WithReference(ordersDb)
     .WithReference(redis)
+    .WithReference(messaging)
     .WithHttpEndpoint(port: 5172, targetPort: 5172, name: "http", isProxied: false)
     .WithHttpEndpoint(port: 5272, targetPort: 5272, name: "grpc", isProxied: false)
     .WithEndpoint("grpc", endpoint => endpoint.ExcludeReferenceEndpoint = true)
     .WithHttpHealthCheck("/health/ready")
     .WaitFor(ordersDb)
-    .WaitFor(redis);
+    .WaitFor(redis)
+    .WaitFor(messaging);
 
 var reviews = builder.AddProject<Projects.Reviews_WebApi>("reviews-api")
     .WithReference(reviewsDb)
     .WithEnvironment("MongoDb__ConnectionString", mongo.Resource.ConnectionStringExpression)
     .WithReference(redis)
+    .WithReference(messaging)
     .WithHttpEndpoint(port: 5180, targetPort: 5180, name: "http", isProxied: false)
     .WithHttpEndpoint(port: 5280, targetPort: 5280, name: "grpc", isProxied: false)
     .WithEndpoint("grpc", endpoint => endpoint.ExcludeReferenceEndpoint = true)
     .WithHttpHealthCheck("/health/ready")
     .WaitFor(mongo)
-    .WaitFor(redis);
+    .WaitFor(redis)
+    .WaitFor(messaging);
 
 var aggregator = builder.AddProject<Projects.Platform_Aggregator>("aggregator")
     .WithReference(catalog)

@@ -10,6 +10,8 @@ using Bakery.Reviews.Domain.Interfaces;
 using MediatR;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
+using Platform.EventBus.Events.Contracts;
+using Platform.EventBus.Publishing;
 using System.Diagnostics;
 
 namespace Bakery.Reviews.Application.Commands;
@@ -27,6 +29,7 @@ public sealed class ModerateReviewCommandHandler(
     IMongoUnitOfWork unitOfWork,
     IReviewQueries queries,
     ICacheService cache,
+    IEventPublisher eventPublisher,
     ILogger<ModerateReviewCommandHandler> logger) : IRequestHandler<ModerateReviewCommand, ReviewDto>
 {
     public async Task<ReviewDto> Handle(ModerateReviewCommand request, CancellationToken ct)
@@ -65,6 +68,22 @@ public sealed class ModerateReviewCommandHandler(
             await logs.AddAsync(new ModerationLog(review.Id, request.Action, request.Moderator, request.Notes), token);
             await ratings.RecalculateAsync(review.ProductId, token);
         }, ct);
+
+        // 6. Publish event ONLY after successful MongoDB transaction commit
+        try
+        {
+            var updatedRating = await ratings.GetByProductIdAsync(review.ProductId, ct);
+            await eventPublisher.PublishAsync(new ReviewModeratedEvent(
+                review.Id.ToString(),
+                review.ProductId,
+                request.Action.ToString(),
+                updatedRating?.AverageScore ?? 0,
+                updatedRating?.TotalReviews ?? 0), ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to publish ReviewModeratedEvent for review {ReviewId}", review.Id);
+        }
 
         activity?.SetTag("review.product_id", review.ProductId);
         activity?.SetTag("review.status", review.Status.ToString());

@@ -255,6 +255,25 @@ namespace Orders.Dal.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Orders.Domain.Entities.ProcessedEvent", b =>
+                {
+                    b.Property<Guid>("EventId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<DateTime>("ProcessedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("EventId");
+
+                    b.ToTable("ProcessedEvents");
+                });
+
             modelBuilder.Entity("Orders.Domain.Entities.Order", b =>
                 {
                     b.HasOne("Orders.Domain.Entities.Customer", "Customer")

@@ -118,3 +118,11 @@ CREATE TABLE dbo.ProductIngredients (
 CREATE NONCLUSTERED INDEX IX_Products_CategoryId ON dbo.Products(CategoryId) INCLUDE (Price, Name);
 CREATE NONCLUSTERED INDEX IX_Products_Price ON dbo.Products(Price ASC);
 CREATE NONCLUSTERED INDEX IX_Ingredients_IsAllergen ON dbo.Ingredients(IsAllergen);
+
+-- 7. Таблиця оброблених подій (ProcessedEvents) для забезпечення ідемпотентності
+IF OBJECT_ID('dbo.ProcessedEvents', 'U') IS NOT NULL DROP TABLE dbo.ProcessedEvents;
+CREATE TABLE dbo.ProcessedEvents (
+    EventId NVARCHAR(128) PRIMARY KEY,
+    EventType NVARCHAR(128) NOT NULL,
+    ProcessedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+);

@@ -8,6 +8,8 @@ using Orders.BLL.Interfaces;
 using Orders.DAL.Interfaces;
 using Orders.Domain.Entities;
 using Orders.Domain.Exceptions;
+using Platform.EventBus.Events.Contracts;
+using Platform.EventBus.Publishing;
 using System.Diagnostics;
 using ValidationException = Orders.Domain.Exceptions.ValidationException;
 
@@ -18,6 +20,7 @@ public class PaymentService(
     IMapper mapper,
     ICacheService cache,
     IValidator<ProcessPaymentRequest> processValidator,
+    IEventPublisher eventPublisher,
     ILogger<PaymentService> logger) : IPaymentService
 {
     public async Task<PaymentResponseDto?> GetByOrderIdAsync(int orderId, CancellationToken ct = default) => await cache.GetOrCreateAsync(
@@ -44,6 +47,20 @@ public class PaymentService(
         order.ChangeStatus("Paid");
         uow.Orders.Update(order);
         await uow.SaveChangesAsync(ct);
+
+        // 6. Publish event ONLY after successful SaveChanges
+        try
+        {
+            await eventPublisher.PublishAsync(new PaymentProcessedEvent(
+                payment.TransactionNumber,
+                payment.OrderId,
+                payment.Amount,
+                payment.Status), ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to publish PaymentProcessedEvent for order {OrderId}", payment.OrderId);
+        }
 
         activity?.SetTag("payment.transaction_number", payment.TransactionNumber);
         activity?.SetTag("order.status", order.Status);

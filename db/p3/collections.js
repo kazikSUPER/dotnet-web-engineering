@@ -86,3 +86,7 @@ db.createCollection('moderation_logs', {
 db.reviews.createIndex({ productId: 1, createdAt: -1 });
 db.reviews.createIndex({ customerId: 1 });
 db.product_ratings.createIndex({ productId: 1 }, { unique: true });
+
+// 4. Колекція оброблених подій для ідемпотентності
+db.createCollection('processed_events');
+db.processed_events.createIndex({ eventId: 1 }, { unique: true });

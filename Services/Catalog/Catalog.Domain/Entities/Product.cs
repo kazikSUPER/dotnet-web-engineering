@@ -20,11 +20,31 @@ public class Product
     public string Name { get; private set; } = string.Empty;
     public decimal Price { get; private set; }
     public int Stock { get; private set; }
+    public double AverageRating { get; private set; }
+    public int ReviewsCount { get; private set; }
     public byte[]? RowVersion { get; private set; }
     public bool IsAvailable => Stock > 0;
     public ICollection<ProductCategory> ProductCategories { get; private set; } = new List<ProductCategory>();
     public ProductDetail? Detail { get; private set; }
     public ICollection<ProductImage> Images { get; private set; } = new List<ProductImage>();
+
+    public void UpdateRating(double averageRating, int reviewsCount)
+    {
+        AverageRating = averageRating;
+        ReviewsCount = reviewsCount;
+    }
+
+    public void Rename(string newName)
+    {
+        if (string.IsNullOrWhiteSpace(newName)) throw new DomainValidationException("Назва товару є обов'язковою.");
+        Name = newName.Trim();
+    }
+
+    public void UpdatePrice(decimal newPrice)
+    {
+        if (newPrice <= 0) throw new DomainValidationException("Ціна товару має бути більшою за нуль.");
+        Price = newPrice;
+    }
 
     public void AddStock(int quantity)
     {
