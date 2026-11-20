@@ -1,9 +1,11 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Globalization;
 using Catalog.Api.Grpc;
 using Grpc.Core;
 using Orders.Api.Grpc;
 using Platform.Aggregator.Caching;
+using Platform.Aggregator.Metrics;
 using Platform.Aggregator.Models;
 using Reviews.WebApi.Grpc;
 
@@ -14,30 +16,39 @@ public sealed class GrpcOrderAggregateService(
     CatalogService.CatalogServiceClient catalogClient,
     ReviewsService.ReviewsServiceClient reviewsClient,
     IAggregatedCache cache,
+    AggregatorMetrics metrics,
     ILogger<GrpcOrderAggregateService> logger)
 {
     private static readonly StatusCode[] Degradable = [StatusCode.Unavailable, StatusCode.DeadlineExceeded];
 
     public async Task<GrpcOrderAggregateDto?> GetOrderFullAsync(int orderId, CancellationToken ct)
     {
+        var sw = Stopwatch.StartNew();
         var key = AggregatedCache.OrderFull(orderId);
         var cached = await cache.TryGetAsync<GrpcOrderAggregateDto>(key, ct);
         if (cached is not null)
         {
+            metrics.RecordDuration(sw.Elapsed.TotalMilliseconds, "full");
             return cached with { Cached = true };
         }
 
         OrderReply order;
         try
         {
-            order = await ordersClient.GetOrderAsync(new GetOrderRequest { Id = orderId }, cancellationToken: ct);
+            order = await ordersClient.GetOrderAsync(
+                new GetOrderRequest { Id = orderId },
+                deadline: DateTime.UtcNow.AddSeconds(3),
+                cancellationToken: ct);
         }
         catch (RpcException exception) when (exception.StatusCode == StatusCode.NotFound)
         {
+            metrics.RecordDuration(sw.Elapsed.TotalMilliseconds, "failed");
             return null;
         }
         catch (RpcException exception) when (Degradable.Contains(exception.StatusCode))
         {
+            metrics.RecordUpstreamFailure("orders");
+            metrics.RecordDuration(sw.Elapsed.TotalMilliseconds, "failed");
             throw new GrpcDownstreamUnavailableException("orders", exception);
         }
 
@@ -70,10 +81,12 @@ public sealed class GrpcOrderAggregateService(
         if (warnings.IsEmpty)
         {
             await cache.SetAsync(key, result, AggregatedCache.Ttl, ct);
+            metrics.RecordDuration(sw.Elapsed.TotalMilliseconds, "full");
         }
         else
         {
             logger.LogWarning("Частковий gRPC-агрегат замовлення {OrderId} не кешується: {WarningCount} попереджень", orderId, warnings.Count);
+            metrics.RecordDuration(sw.Elapsed.TotalMilliseconds, "partial");
         }
 
         return result;
@@ -83,11 +96,15 @@ public sealed class GrpcOrderAggregateService(
     {
         try
         {
-            var result = await catalogClient.GetProductAsync(new GetProductRequest { Id = productId }, cancellationToken: ct);
+            var result = await catalogClient.GetProductAsync(
+                new GetProductRequest { Id = productId },
+                deadline: DateTime.UtcNow.AddSeconds(3),
+                cancellationToken: ct);
             return new GrpcCatalogProductSnapshot(result.Name, ParseDecimal(result.Price), result.Stock, result.IsAvailable);
         }
         catch (RpcException exception) when (Degradable.Contains(exception.StatusCode))
         {
+            metrics.RecordUpstreamFailure("catalog");
             warnings.Enqueue($"catalog:product:{productId} unavailable ({exception.StatusCode})");
             logger.LogWarning(exception, "Catalog gRPC недоступний для товару {ProductId}", productId);
             return null;
@@ -98,11 +115,15 @@ public sealed class GrpcOrderAggregateService(
     {
         try
         {
-            var result = await reviewsClient.GetProductRatingAsync(new GetProductRatingRequest { ProductId = productId }, cancellationToken: ct);
+            var result = await reviewsClient.GetProductRatingAsync(
+                new GetProductRatingRequest { ProductId = productId },
+                deadline: DateTime.UtcNow.AddSeconds(2),
+                cancellationToken: ct);
             return new GrpcProductRatingSnapshot(result.TotalReviews, result.AverageScore);
         }
         catch (RpcException exception) when (Degradable.Contains(exception.StatusCode))
         {
+            metrics.RecordUpstreamFailure("reviews");
             warnings.Enqueue($"reviews:product:{productId} unavailable ({exception.StatusCode})");
             logger.LogWarning(exception, "Reviews gRPC недоступний для товару {ProductId}", productId);
             return null;

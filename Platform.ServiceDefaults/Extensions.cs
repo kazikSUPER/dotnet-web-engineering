@@ -41,9 +41,62 @@ public static class Extensions
         {
             http.AddServiceDiscovery();
             http.AddHttpMessageHandler<CorrelationIdPropagationHandler>();
+            http.AddStandardResilienceHandler(options =>
+            {
+                options.Retry.MaxRetryAttempts = 3;
+                options.Retry.Delay = TimeSpan.FromMilliseconds(500);
+                options.Retry.BackoffType = Polly.DelayBackoffType.Exponential;
+                options.Retry.UseJitter = true;
+                options.Retry.DisableForUnsafeHttpMethods();
+                options.Retry.OnRetry = args =>
+                {
+                    Log.Warning("HTTP retry attempt {AttemptNumber} after {RetryDelay}ms", args.AttemptNumber, args.RetryDelay.TotalMilliseconds);
+                    return ValueTask.CompletedTask;
+                };
+
+                options.CircuitBreaker.FailureRatio = 0.5;
+                options.CircuitBreaker.MinimumThroughput = 10;
+                options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(30);
+                options.CircuitBreaker.BreakDuration = TimeSpan.FromSeconds(15);
+                options.CircuitBreaker.OnOpened = args =>
+                {
+                    Log.Error("Standard circuit breaker opened. Break duration: {BreakDuration}s", args.BreakDuration.TotalSeconds);
+                    return ValueTask.CompletedTask;
+                };
+                options.CircuitBreaker.OnClosed = args =>
+                {
+                    Log.Information("Standard circuit breaker closed");
+                    return ValueTask.CompletedTask;
+                };
+                options.CircuitBreaker.OnHalfOpened = args =>
+                {
+                    Log.Information("Standard circuit breaker half-opened");
+                    return ValueTask.CompletedTask;
+                };
+
+                options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(3);
+                options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(10);
+            });
         });
 
         return builder;
+    }
+
+    public static Microsoft.Extensions.Http.Resilience.HttpRetryStrategyOptions DisableForUnsafeHttpMethods(
+        this Microsoft.Extensions.Http.Resilience.HttpRetryStrategyOptions options)
+    {
+        var originalShouldHandle = options.ShouldHandle;
+        options.ShouldHandle = args =>
+        {
+            if (args.Outcome.Result?.RequestMessage?.Method is { } method &&
+                (method == HttpMethod.Post || method == HttpMethod.Patch || method == HttpMethod.Delete))
+            {
+                return ValueTask.FromResult(false);
+            }
+
+            return originalShouldHandle?.Invoke(args) ?? ValueTask.FromResult(false);
+        };
+        return options;
     }
 
     public static IHostApplicationBuilder ConfigureOpenTelemetry(
@@ -68,7 +121,12 @@ public static class Extensions
                 .AddAspNetCoreInstrumentation()
                 .AddHttpClientInstrumentation()
                 .AddSqlClientInstrumentation()
-                .AddMeter("Platform.Caching"))
+                .AddMeter("Orders.Api")
+                .AddMeter("Catalog.Api")
+                .AddMeter("Reviews.WebApi")
+                .AddMeter("Platform.Aggregator")
+                .AddMeter("Platform.Caching")
+                .AddMeter("Polly"))
             .WithTracing(tracing =>
             {
                 tracing.AddAspNetCoreInstrumentation(options => options.Filter = IsHealthRequest)
@@ -145,12 +203,48 @@ public static class Extensions
             Predicate = registration => registration.Tags.Contains("live"),
         });
 
+        app.MapHealthChecks("/health/live", new HealthCheckOptions
+        {
+            Predicate = registration => registration.Tags.Contains("live"),
+        });
+
+        app.MapHealthChecks("/health/ready", new HealthCheckOptions
+        {
+            Predicate = registration => registration.Tags.Contains("ready"),
+            ResponseWriter = WriteHealthResponseAsync,
+        });
+
         app.MapHealthChecks(HealthEndpointPath, new HealthCheckOptions
         {
             Predicate = _ => true,
+            ResponseWriter = WriteHealthResponseAsync,
         });
 
         return app;
+    }
+
+    public static async Task WriteHealthResponseAsync(HttpContext context, HealthReport report)
+    {
+        context.Response.ContentType = "application/json; charset=utf-8";
+        var response = new
+        {
+            status = report.Status.ToString(),
+            totalDurationMs = report.TotalDuration.TotalMilliseconds,
+            checks = report.Entries.Select(e => new
+            {
+                name = e.Key,
+                status = e.Value.Status.ToString(),
+                description = e.Value.Description,
+                durationMs = e.Value.Duration.TotalMilliseconds,
+                tags = e.Value.Tags,
+                exception = e.Value.Exception?.Message
+            })
+        };
+        await context.Response.WriteAsync(System.Text.Json.JsonSerializer.Serialize(response, new System.Text.Json.JsonSerializerOptions
+        {
+            WriteIndented = true,
+            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
+        }));
     }
 
     private static bool IsHealthRequest(HttpContext context) =>

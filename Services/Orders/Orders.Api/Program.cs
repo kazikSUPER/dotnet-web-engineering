@@ -1,5 +1,7 @@
 using Orders.API.Middleware;
 using Orders.Api.Grpc;
+using Orders.Api.HealthChecks;
+using Orders.Api.Metrics;
 using Orders.BLL.Caching;
 using Orders.BLL.Diagnostics;
 using Orders.BLL.Interfaces;
@@ -17,6 +19,9 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Host.UsePlatformSerilog("Orders.Api");
 builder.AddServiceDefaults(OrdersActivitySources.SourceNames);
+
+builder.Services.AddSingleton<OrdersMetrics>();
+builder.Services.AddOrdersHealthChecks(builder.Configuration);
 
 builder.Services.AddDbContext<OrdersDbContext>(options => options
     .UseSqlServer(builder.Configuration.GetConnectionString("OrdersDb"), sql => sql.EnableRetryOnFailure(20, TimeSpan.FromSeconds(5), null))
@@ -56,6 +61,7 @@ app.UseSwagger();
 app.UseSwaggerUI();
 app.MapControllers();
 app.MapGrpcService<OrdersGrpcService>();
+app.MapGrpcHealthChecksService();
 app.MapDefaultEndpoints();
 await app.RunAsync();
 

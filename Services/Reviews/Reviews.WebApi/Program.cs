@@ -10,12 +10,17 @@ using Bakery.Reviews.WebApi.Middleware;
 using Microsoft.OpenApi;
 using Platform.ServiceDefaults;
 using Reviews.WebApi.Grpc;
+using Reviews.WebApi.HealthChecks;
+using Reviews.WebApi.Metrics;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Host.UsePlatformSerilog("Reviews.WebApi");
 builder.AddServiceDefaults(ReviewsActivitySources.SourceNames);
+
+builder.Services.AddSingleton<ReviewsMetrics>();
+builder.Services.AddReviewsHealthChecks(builder.Configuration);
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
@@ -36,8 +41,6 @@ builder.Services.AddSwaggerGen(options => options.SwaggerDoc("v1", new OpenApiIn
     Description = "Сервіс відгуків на MongoDB: Clean Architecture, CQRS через MediatR, behaviors, cursor pagination та optimistic concurrency.",
 }));
 
-builder.Services.AddHealthChecks().AddCheck<MongoDbHealthCheck>("mongodb");
-
 var app = builder.Build();
 
 await InitializeDatabaseAsync(app);
@@ -50,6 +53,7 @@ app.UseSwaggerUI();
 
 app.MapControllers();
 app.MapGrpcService<ReviewsGrpcService>();
+app.MapGrpcHealthChecksService();
 app.MapDefaultEndpoints();
 
 try

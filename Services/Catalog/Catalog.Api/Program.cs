@@ -1,5 +1,7 @@
 using Catalog.API.Middleware;
 using Catalog.Api.Grpc;
+using Catalog.Api.HealthChecks;
+using Catalog.Api.Metrics;
 using Catalog.BLL.Caching;
 using Catalog.BLL.Diagnostics;
 using Catalog.BLL.Interfaces;
@@ -15,6 +17,9 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Host.UsePlatformSerilog("Catalog.Api");
 builder.AddServiceDefaults(CatalogActivitySources.SourceNames);
+
+builder.Services.AddSingleton<CatalogMetrics>();
+builder.Services.AddCatalogHealthChecks(builder.Configuration);
 
 builder.Services.AddDbContext<CatalogDbContext>(options => options
     .UseSqlServer(builder.Configuration.GetConnectionString("CatalogDb"), sql => sql.EnableRetryOnFailure(20, TimeSpan.FromSeconds(5), null))
@@ -51,6 +56,7 @@ app.UseSwagger();
 app.UseSwaggerUI();
 app.MapControllers();
 app.MapGrpcService<CatalogGrpcService>();
+app.MapGrpcHealthChecksService();
 app.MapDefaultEndpoints();
 await app.RunAsync();
 

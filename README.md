@@ -545,6 +545,31 @@ MongoDB для транзакцій потрібен як одно-вузлов�
 | 13 | Серверний interceptor для логування gRPC-викликів | 0.6 | ШІ | `Services/*/Grpc/GrpcLoggingInterceptor.cs` (метод, peer, статус, тривалість), клієнтський — `Platform.Aggregator/GrpcClients/GrpcClientLoggingInterceptor.cs` |
 | 14 | Метрики попадань і промахів кешу через `Meter` | 0.7 | ШІ | `*/Caching/CacheMetrics.cs` + `Platform.Aggregator/Caching/AggregatedCache.cs` (`cache.hits`/`cache.misses`, тег `level`), `.AddMeter("Platform.Caching")` у `Platform.ServiceDefaults/Extensions.cs` |
 
+### 6.3. Лабораторна №7 (12 критеріїв → 9 балів)
+
+| № | Критерій | Вага | Де реалізовано / Що перевіряється |
+|---|---|---|---|
+| 1 | Standard Resilience Handler для всіх клієнтів без нашарування | 0.6 | `Platform.ServiceDefaults/Extensions.cs`: `ConfigureHttpClientDefaults` + `AddStandardResilienceHandler`. Для кастомних/gRPC-клієнтів викликається `RemoveAllResilienceHandlers()` перед власною політикою. |
+| 2 | Retry-політика gRPC-клієнтів за gRPC-статусами | 0.8 | `Platform.Aggregator/Program.cs`: `ServiceConfig` з `MethodConfig` і `RetryPolicy` (`MaxAttempts`, exponential backoff, `RetryableStatusCodes`: `Unavailable`, `DeadlineExceeded`). |
+| 3 | Налаштовані retry, circuit breaker і таймаути | 1.1 | `Platform.ServiceDefaults/Extensions.cs`: exponential backoff, jitter, `DisableForUnsafeHttpMethods()`; `CircuitBreaker` (`FailureRatio=0.5`, `MinimumThroughput=10`, `BreakDuration=15s`, `OnOpened`/`OnClosed`/`OnHalfOpened` логи); узгоджені таймаути. |
+| 4 | Різні політики для критичних і некритичних сервісів з обґрунтуванням | 0.8 | `Platform.Aggregator/Program.cs`: Critical (`Orders`, `Catalog`) — 5 спроб, backoff 1s→5s, чутливий breaker; Non-critical (`Reviews`) — 2 спроби, backoff 500ms→2s для швидкого failover. Таблиця обґрунтування нижче. |
+| 5 | Graceful degradation кешу Redis | 0.8 | `*/Caching/TwoLevelCacheService.cs` + `AggregatedCache.cs`: збої перехоплюються, логується Warning, лічильник `cache.redis.failures`, читання напряму з джерела/БД. |
+| 6 | Клас бізнес-метрик з лічильниками через `IMeterFactory` | 0.9 | `Services/*/*/Metrics/` (`OrdersMetrics`, `CatalogMetrics`, `ReviewsMetrics`, `AggregatorMetrics`): зареєстровані Singleton, лічильники створені через `IMeterFactory`, назви `orders.created`, `reviews.created` тощо; OTel `.AddMeter(...)` у ServiceDefaults. |
+| 7 | Гістограми тривалості та gauge з низькою кардинальністю | 0.9 | `Metrics/*`: гістограми тривалості операцій (`orders.duration`, `products.duration`, `reviews.operation.duration`, `aggregate.duration`) для успішних і невдалих операцій; `ObservableGauge` (`orders.pending`, `products.available`, `reviews.moderation.pending`); теги з низькою кардинальністю (без Id користувачів). |
+| 8 | Health checks SQL Server і MongoDB з іменами, тегами й таймаутом | 0.7 | `HealthChecks/*` у сервісах: `AddSqlServer` (`orders-sql`, `catalog-sql`) і `AddMongoDb` (`reviews-mongo`) з тегами `database` та `ready`, timeout 5s. |
+| 9 | Health check Redis зі статусом `Degraded` | 0.4 | `HealthChecks/*` у сервісах і Aggregator: `AddRedis` з `failureStatus: HealthStatus.Degraded`, теги `cache`, `ready`, timeout 3s. Недоступність кешу не робить сервіс Unhealthy. |
+| 10 | gRPC Health Checking Protocol і перевірка залежностей в Aggregator | 0.8 | `Services/*`: `AddGrpcHealthChecks()` + `MapGrpcHealthChecksService()`. `Platform.Aggregator/HealthChecks/DownstreamGrpcHealthCheck.cs`: реалізація `IHealthCheck` через `Health.HealthClient` з коротким дедлайном 2s. |
+| 11 | Розділені liveness і readiness endpoints з деталями | 0.8 | `Platform.ServiceDefaults/Extensions.cs`: `/health/live` (тег `live`), `/health/ready` (тег `ready`, JSON-деталі), `/health` (усі чеки). Доступні **в усіх середовищах** (не обмежені `IsDevelopment()`). |
+| 12 | AppHost показує стан ресурсів через `WithHttpHealthCheck` | 0.4 | `Platform.AppHost/Program.cs`: `.WithHttpHealthCheck("/health/ready")` для `orders`, `catalog`, `reviews`, `aggregator`, `gateway`. `WaitFor` чекає на здоровий сервіс. |
+
+#### Таблиця профілів резильєнтності (Critical vs Non-Critical)
+
+| Сервіс / Клієнт | Профіль | MaxAttempts | Initial Backoff | Max Backoff | Breaker FailureRatio | Breaker BreakDuration | Timeout | Обґрунтування |
+|---|---|---|---|---|---|---|---|---|
+| **Orders.Api** | Critical | 5 | 1.0 s | 5.0 s | 0.3 (чутливий) | 15 s | 3 s | Оформлення замовлення є ядром бізнесу. Втрата запиту веде до втрати прибутку. Допустимо витратити більше часу на спроби відновлення з'єднання. |
+| **Catalog.Api** | Critical | 5 | 1.0 s | 5.0 s | 0.3 (чутливий) | 15 s | 3 s | Без актуальних цін та наявності товарів оформлення замовлення неможливе. Висока критичність доступності. |
+| **Reviews.WebApi** | Non-Critical | 2 | 0.5 s | 2.0 s | 0.7 (м'який) | 10 s | 2 s | Відгуки та рейтинги є другорядним контентом. Якщо сервіс недоступний, Aggregator повинен негайно віддати partial response з попередженням, не сповільнюючи користувача. |
+
 Сума ваг: інфраструктура 1.2 + локальне кешування 2.3 + розподілене 1.9 + gRPC-сервіси 1.9 +
 Aggregator 2.4 + обсервабіліті 1.3 = **11.0**.
 

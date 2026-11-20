@@ -62,6 +62,7 @@ public sealed class TwoLevelCacheService(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            CacheMetrics.RecordFailure("remove", CacheName);
             logger.LogWarning(ex, "Redis remove failed key={Key}", key);
         }
 
@@ -85,6 +86,7 @@ public sealed class TwoLevelCacheService(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            CacheMetrics.RecordFailure("read", CacheName);
             logger.LogWarning(ex, "Redis read failed key={Key}, falling back to source", key);
             return default;
         }
@@ -102,6 +104,7 @@ public sealed class TwoLevelCacheService(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            CacheMetrics.RecordFailure("write", CacheName);
             logger.LogWarning(ex, "Redis write failed key={Key}", key);
         }
     }
