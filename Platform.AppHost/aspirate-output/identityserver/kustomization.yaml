@@ -1,0 +1,25 @@
+resources:
+- deployment.yaml
+- service.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+configMapGenerator:
+- name: identityserver-env
+  literals:
+    - OTEL_DOTNET_EXPERIMENTAL_OTLP_RETRY=in_memory
+    - ASPNETCORE_FORWARDEDHEADERS_ENABLED=true
+    - HTTP_PORTS=5400
+    - ConnectionStrings__IdentityServerDb=Server=sql,1433;User ID=sa;Password=SqlPassword123!;TrustServerCertificate=true;Initial Catalog=IdentityServerDb
+    - IDENTITYSERVERDB_HOST=sql
+    - IDENTITYSERVERDB_PORT=1433
+    - IDENTITYSERVERDB_USERNAME=sa
+    - IDENTITYSERVERDB_PASSWORD=SqlPassword123!
+    - IDENTITYSERVERDB_URI=mssql://sa:SqlPassword123!@sql:1433/IdentityServerDb
+    - IDENTITYSERVERDB_JDBCCONNECTIONSTRING=jdbc:sqlserver://sql:1433;databaseName=IdentityServerDb;trustServerCertificate=true
+    - IDENTITYSERVERDB_DATABASENAME=IdentityServerDb
+    - OTEL_EXPORTER_OTLP_ENDPOINT=http://aspire-dashboard:18889
+    - OTEL_SERVICE_NAME=identityserver
+    - ASPNETCORE_URLS=http://+:8080;
+

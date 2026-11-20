@@ -1,0 +1,542 @@
+{
+  "resources": {
+    "sql-password": {
+      "type": "parameter.v0",
+      "value": "{sql-password.inputs.value}",
+      "inputs": {
+        "value": {
+          "type": "string",
+          "secret": true
+        }
+      }
+    },
+    "sql": {
+      "type": "container.v0",
+      "connectionString": "Server={sql.bindings.tcp.host},{sql.bindings.tcp.port};User ID=sa;Password={sql-password.value};TrustServerCertificate=true",
+      "image": "mcr.microsoft.com/mssql/server:2022-latest",
+      "volumes": [
+        {
+          "name": "dotnet-web-sql-data",
+          "target": "/var/opt/mssql",
+          "readOnly": false
+        }
+      ],
+      "env": {
+        "ACCEPT_EULA": "Y",
+        "MSSQL_SA_PASSWORD": "{sql-password.value}"
+      },
+      "bindings": {
+        "tcp": {
+          "scheme": "tcp",
+          "protocol": "tcp",
+          "transport": "tcp",
+          "targetPort": 1433
+        }
+      }
+    },
+    "CatalogDb": {
+      "type": "value.v0",
+      "connectionString": "{sql.connectionString};Initial Catalog=CatalogDb"
+    },
+    "OrdersDb": {
+      "type": "value.v0",
+      "connectionString": "{sql.connectionString};Initial Catalog=OrdersDb"
+    },
+    "IdentityDb": {
+      "type": "value.v0",
+      "connectionString": "{sql.connectionString};Initial Catalog=IdentityDb"
+    },
+    "IdentityServerDb": {
+      "type": "value.v0",
+      "connectionString": "{sql.connectionString};Initial Catalog=IdentityServerDb"
+    },
+    "redis": {
+      "type": "container.v0",
+      "connectionString": "{redis.bindings.tcp.host}:{redis.bindings.tcp.port},password={redis-password.value}{cond-redis-bindings-tcp-tlsenabled-d148d83a.connectionString}",
+      "image": "docker.io/library/redis:8.6",
+      "entrypoint": "/bin/sh",
+      "args": [
+        "-c",
+        "redis-server --requirepass $REDIS_PASSWORD --save 60 1"
+      ],
+      "volumes": [
+        {
+          "name": "dotnet-web-redis-data",
+          "target": "/data",
+          "readOnly": false
+        }
+      ],
+      "env": {
+        "REDIS_PASSWORD": "{redis-password.value}"
+      },
+      "bindings": {
+        "tcp": {
+          "scheme": "redis",
+          "protocol": "tcp",
+          "transport": "tcp",
+          "targetPort": 6379
+        }
+      }
+    },
+    "mongo": {
+      "type": "container.v0",
+      "connectionString": "mongodb://admin:{mongo-password-uri-encoded.value}@{mongo.bindings.tcp.host}:{mongo.bindings.tcp.port}/?authSource=admin\u0026authMechanism=SCRAM-SHA-256{cond-mongo-bindings-tcp-tlsenabled-6a254ce1.connectionString}",
+      "image": "docker.io/library/mongo:8.3",
+      "volumes": [
+        {
+          "name": "dotnet-web-mongo-data",
+          "target": "/data/db",
+          "readOnly": false
+        }
+      ],
+      "env": {
+        "MONGO_INITDB_ROOT_USERNAME": "admin",
+        "MONGO_INITDB_ROOT_PASSWORD": "{mongo-password.value}"
+      },
+      "bindings": {
+        "tcp": {
+          "scheme": "tcp",
+          "protocol": "tcp",
+          "transport": "tcp",
+          "targetPort": 27017
+        }
+      }
+    },
+    "BakeryReviewsDB": {
+      "type": "value.v0",
+      "connectionString": "mongodb://admin:{mongo-password-uri-encoded.value}@{mongo.bindings.tcp.host}:{mongo.bindings.tcp.port}/BakeryReviewsDB?authSource=admin\u0026authMechanism=SCRAM-SHA-256{cond-mongo-bindings-tcp-tlsenabled-6a254ce1.connectionString}"
+    },
+    "messaging": {
+      "type": "container.v0",
+      "connectionString": "amqp://guest:{messaging-password-uri-encoded.value}@{messaging.bindings.tcp.host}:{messaging.bindings.tcp.port}",
+      "image": "docker.io/library/rabbitmq:4.3-management",
+      "volumes": [
+        {
+          "name": "dotnet-web-rabbitmq-data",
+          "target": "/var/lib/rabbitmq",
+          "readOnly": false
+        }
+      ],
+      "env": {
+        "RABBITMQ_DEFAULT_USER": "guest",
+        "RABBITMQ_DEFAULT_PASS": "{messaging-password.value}"
+      },
+      "bindings": {
+        "tcp": {
+          "scheme": "tcp",
+          "protocol": "tcp",
+          "transport": "tcp",
+          "targetPort": 5672
+        },
+        "management": {
+          "scheme": "http",
+          "protocol": "tcp",
+          "transport": "http",
+          "targetPort": 15672
+        }
+      }
+    },
+    "keycloak": {
+      "type": "container.v0",
+      "image": "quay.io/keycloak/keycloak:26.0",
+      "args": [
+        "start-dev"
+      ],
+      "env": {
+        "KEYCLOAK_ADMIN": "admin",
+        "KEYCLOAK_ADMIN_PASSWORD": "admin"
+      },
+      "bindings": {
+        "http": {
+          "scheme": "http",
+          "protocol": "tcp",
+          "transport": "http",
+          "targetPort": 8080
+        }
+      }
+    },
+    "auth-api": {
+      "type": "project.v0",
+      "path": "../Services/Auth/Auth.Api/Auth.Api.csproj",
+      "env": {
+        "OTEL_DOTNET_EXPERIMENTAL_OTLP_RETRY": "in_memory",
+        "ASPNETCORE_FORWARDEDHEADERS_ENABLED": "true",
+        "HTTP_PORTS": "{auth-api.bindings.http.targetPort}",
+        "ConnectionStrings__IdentityDb": "{IdentityDb.connectionString}",
+        "IDENTITYDB_HOST": "{sql.bindings.tcp.host}",
+        "IDENTITYDB_PORT": "{sql.bindings.tcp.port}",
+        "IDENTITYDB_USERNAME": "sa",
+        "IDENTITYDB_PASSWORD": "{sql-password.value}",
+        "IDENTITYDB_URI": "mssql://sa:{sql-password.value}@{sql.bindings.tcp.host}:{sql.bindings.tcp.port}/IdentityDb",
+        "IDENTITYDB_JDBCCONNECTIONSTRING": "jdbc:sqlserver://{sql.bindings.tcp.host}:{sql.bindings.tcp.port};databaseName=IdentityDb;trustServerCertificate=true",
+        "IDENTITYDB_DATABASENAME": "IdentityDb"
+      },
+      "bindings": {
+        "http": {
+          "scheme": "http",
+          "protocol": "tcp",
+          "transport": "http",
+          "targetPort": 5300
+        }
+      }
+    },
+    "identityserver": {
+      "type": "project.v0",
+      "path": "../Platform.IdentityServer/Platform.IdentityServer.csproj",
+      "env": {
+        "OTEL_DOTNET_EXPERIMENTAL_OTLP_RETRY": "in_memory",
+        "ASPNETCORE_FORWARDEDHEADERS_ENABLED": "true",
+        "HTTP_PORTS": "{identityserver.bindings.http.targetPort}",
+        "ConnectionStrings__IdentityServerDb": "{IdentityServerDb.connectionString}",
+        "IDENTITYSERVERDB_HOST": "{sql.bindings.tcp.host}",
+        "IDENTITYSERVERDB_PORT": "{sql.bindings.tcp.port}",
+        "IDENTITYSERVERDB_USERNAME": "sa",
+        "IDENTITYSERVERDB_PASSWORD": "{sql-password.value}",
+        "IDENTITYSERVERDB_URI": "mssql://sa:{sql-password.value}@{sql.bindings.tcp.host}:{sql.bindings.tcp.port}/IdentityServerDb",
+        "IDENTITYSERVERDB_JDBCCONNECTIONSTRING": "jdbc:sqlserver://{sql.bindings.tcp.host}:{sql.bindings.tcp.port};databaseName=IdentityServerDb;trustServerCertificate=true",
+        "IDENTITYSERVERDB_DATABASENAME": "IdentityServerDb"
+      },
+      "bindings": {
+        "http": {
+          "scheme": "http",
+          "protocol": "tcp",
+          "transport": "http",
+          "targetPort": 5400
+        }
+      }
+    },
+    "payments-api": {
+      "type": "project.v0",
+      "path": "../Services/Payments/Payments.Api/Payments.Api.csproj",
+      "env": {
+        "OTEL_DOTNET_EXPERIMENTAL_OTLP_RETRY": "in_memory",
+        "ASPNETCORE_FORWARDEDHEADERS_ENABLED": "true",
+        "HTTP_PORTS": "{payments-api.bindings.http.targetPort}"
+      },
+      "bindings": {
+        "http": {
+          "scheme": "http",
+          "protocol": "tcp",
+          "transport": "http",
+          "targetPort": 5185
+        }
+      }
+    },
+    "catalog-api": {
+      "type": "project.v0",
+      "path": "../Services/Catalog/Catalog.Api/Catalog.Api.csproj",
+      "env": {
+        "OTEL_DOTNET_EXPERIMENTAL_OTLP_RETRY": "in_memory",
+        "ASPNETCORE_FORWARDEDHEADERS_ENABLED": "true",
+        "Kestrel__Endpoints__Grpc__Url": "http://*:{catalog-api.bindings.Grpc.targetPort}",
+        "Kestrel__Endpoints__Http__Url": "http://*:{catalog-api.bindings.Http.targetPort}",
+        "ConnectionStrings__CatalogDb": "{CatalogDb.connectionString}",
+        "CATALOGDB_HOST": "{sql.bindings.tcp.host}",
+        "CATALOGDB_PORT": "{sql.bindings.tcp.port}",
+        "CATALOGDB_USERNAME": "sa",
+        "CATALOGDB_PASSWORD": "{sql-password.value}",
+        "CATALOGDB_URI": "mssql://sa:{sql-password.value}@{sql.bindings.tcp.host}:{sql.bindings.tcp.port}/CatalogDb",
+        "CATALOGDB_JDBCCONNECTIONSTRING": "jdbc:sqlserver://{sql.bindings.tcp.host}:{sql.bindings.tcp.port};databaseName=CatalogDb;trustServerCertificate=true",
+        "CATALOGDB_DATABASENAME": "CatalogDb",
+        "ConnectionStrings__redis": "{redis.connectionString}",
+        "REDIS_HOST": "{redis.bindings.tcp.host}",
+        "REDIS_PORT": "{redis.bindings.tcp.port}",
+        "REDIS_PASSWORD": "{redis-password.value}",
+        "REDIS_URI": "{redis.bindings.tcp.scheme}://:{redis-password-uri-encoded.value}@{redis.bindings.tcp.host}:{redis.bindings.tcp.port}",
+        "ConnectionStrings__messaging": "{messaging.connectionString}",
+        "MESSAGING_HOST": "{messaging.bindings.tcp.host}",
+        "MESSAGING_PORT": "{messaging.bindings.tcp.port}",
+        "MESSAGING_USERNAME": "guest",
+        "MESSAGING_PASSWORD": "{messaging-password.value}",
+        "MESSAGING_URI": "amqp://guest:{messaging-password-uri-encoded.value}@{messaging.bindings.tcp.host}:{messaging.bindings.tcp.port}"
+      },
+      "bindings": {
+        "Grpc": {
+          "scheme": "http",
+          "protocol": "tcp",
+          "transport": "http2",
+          "targetPort": 5273
+        },
+        "Http": {
+          "scheme": "http",
+          "protocol": "tcp",
+          "transport": "http",
+          "targetPort": 5173
+        },
+        "https": {
+          "scheme": "https",
+          "protocol": "tcp",
+          "transport": "http",
+          "targetPort": 5273
+        }
+      }
+    },
+    "orders-api": {
+      "type": "project.v0",
+      "path": "../Services/Orders/Orders.Api/Orders.Api.csproj",
+      "env": {
+        "OTEL_DOTNET_EXPERIMENTAL_OTLP_RETRY": "in_memory",
+        "ASPNETCORE_FORWARDEDHEADERS_ENABLED": "true",
+        "Kestrel__Endpoints__Grpc__Url": "http://*:{orders-api.bindings.Grpc.targetPort}",
+        "Kestrel__Endpoints__Http__Url": "http://*:{orders-api.bindings.Http.targetPort}",
+        "ConnectionStrings__OrdersDb": "{OrdersDb.connectionString}",
+        "ORDERSDB_HOST": "{sql.bindings.tcp.host}",
+        "ORDERSDB_PORT": "{sql.bindings.tcp.port}",
+        "ORDERSDB_USERNAME": "sa",
+        "ORDERSDB_PASSWORD": "{sql-password.value}",
+        "ORDERSDB_URI": "mssql://sa:{sql-password.value}@{sql.bindings.tcp.host}:{sql.bindings.tcp.port}/OrdersDb",
+        "ORDERSDB_JDBCCONNECTIONSTRING": "jdbc:sqlserver://{sql.bindings.tcp.host}:{sql.bindings.tcp.port};databaseName=OrdersDb;trustServerCertificate=true",
+        "ORDERSDB_DATABASENAME": "OrdersDb",
+        "ConnectionStrings__redis": "{redis.connectionString}",
+        "REDIS_HOST": "{redis.bindings.tcp.host}",
+        "REDIS_PORT": "{redis.bindings.tcp.port}",
+        "REDIS_PASSWORD": "{redis-password.value}",
+        "REDIS_URI": "{redis.bindings.tcp.scheme}://:{redis-password-uri-encoded.value}@{redis.bindings.tcp.host}:{redis.bindings.tcp.port}",
+        "ConnectionStrings__messaging": "{messaging.connectionString}",
+        "MESSAGING_HOST": "{messaging.bindings.tcp.host}",
+        "MESSAGING_PORT": "{messaging.bindings.tcp.port}",
+        "MESSAGING_USERNAME": "guest",
+        "MESSAGING_PASSWORD": "{messaging-password.value}",
+        "MESSAGING_URI": "amqp://guest:{messaging-password-uri-encoded.value}@{messaging.bindings.tcp.host}:{messaging.bindings.tcp.port}"
+      },
+      "bindings": {
+        "Grpc": {
+          "scheme": "http",
+          "protocol": "tcp",
+          "transport": "http2",
+          "targetPort": 5272
+        },
+        "Http": {
+          "scheme": "http",
+          "protocol": "tcp",
+          "transport": "http",
+          "targetPort": 5172
+        },
+        "https": {
+          "scheme": "https",
+          "protocol": "tcp",
+          "transport": "http",
+          "targetPort": 5272
+        }
+      }
+    },
+    "reviews-api": {
+      "type": "project.v0",
+      "path": "../Services/Reviews/Reviews.WebApi/Reviews.WebApi.csproj",
+      "env": {
+        "OTEL_DOTNET_EXPERIMENTAL_OTLP_RETRY": "in_memory",
+        "ASPNETCORE_FORWARDEDHEADERS_ENABLED": "true",
+        "Kestrel__Endpoints__Grpc__Url": "http://*:{reviews-api.bindings.Grpc.targetPort}",
+        "Kestrel__Endpoints__Http__Url": "http://*:{reviews-api.bindings.Http.targetPort}",
+        "ConnectionStrings__BakeryReviewsDB": "{BakeryReviewsDB.connectionString}",
+        "BAKERYREVIEWSDB_HOST": "{mongo.bindings.tcp.host}",
+        "BAKERYREVIEWSDB_PORT": "{mongo.bindings.tcp.port}",
+        "BAKERYREVIEWSDB_USERNAME": "admin",
+        "BAKERYREVIEWSDB_PASSWORD": "{mongo-password.value}",
+        "BAKERYREVIEWSDB_AUTHENTICATIONDATABASE": "admin",
+        "BAKERYREVIEWSDB_AUTHENTICATIONMECHANISM": "SCRAM-SHA-256",
+        "BAKERYREVIEWSDB_URI": "mongodb://admin:{mongo-password-uri-encoded.value}@{mongo.bindings.tcp.host}:{mongo.bindings.tcp.port}/BakeryReviewsDB?authSource=admin\u0026authMechanism=SCRAM-SHA-256{cond-mongo-bindings-tcp-tlsenabled-6a254ce1.connectionString}",
+        "BAKERYREVIEWSDB_DATABASENAME": "BakeryReviewsDB",
+        "MongoDb__ConnectionString": "mongodb://admin:{mongo-password-uri-encoded.value}@{mongo.bindings.tcp.host}:{mongo.bindings.tcp.port}/?authSource=admin\u0026authMechanism=SCRAM-SHA-256{cond-mongo-bindings-tcp-tlsenabled-6a254ce1.connectionString}",
+        "ConnectionStrings__redis": "{redis.connectionString}",
+        "REDIS_HOST": "{redis.bindings.tcp.host}",
+        "REDIS_PORT": "{redis.bindings.tcp.port}",
+        "REDIS_PASSWORD": "{redis-password.value}",
+        "REDIS_URI": "{redis.bindings.tcp.scheme}://:{redis-password-uri-encoded.value}@{redis.bindings.tcp.host}:{redis.bindings.tcp.port}",
+        "ConnectionStrings__messaging": "{messaging.connectionString}",
+        "MESSAGING_HOST": "{messaging.bindings.tcp.host}",
+        "MESSAGING_PORT": "{messaging.bindings.tcp.port}",
+        "MESSAGING_USERNAME": "guest",
+        "MESSAGING_PASSWORD": "{messaging-password.value}",
+        "MESSAGING_URI": "amqp://guest:{messaging-password-uri-encoded.value}@{messaging.bindings.tcp.host}:{messaging.bindings.tcp.port}"
+      },
+      "bindings": {
+        "Grpc": {
+          "scheme": "http",
+          "protocol": "tcp",
+          "transport": "http2",
+          "targetPort": 5280
+        },
+        "Http": {
+          "scheme": "http",
+          "protocol": "tcp",
+          "transport": "http",
+          "targetPort": 5180
+        },
+        "https": {
+          "scheme": "https",
+          "protocol": "tcp",
+          "transport": "http",
+          "targetPort": 5280
+        }
+      }
+    },
+    "aggregator": {
+      "type": "project.v0",
+      "path": "../Platform.Aggregator/Platform.Aggregator.csproj",
+      "env": {
+        "OTEL_DOTNET_EXPERIMENTAL_OTLP_RETRY": "in_memory",
+        "ASPNETCORE_FORWARDEDHEADERS_ENABLED": "true",
+        "HTTP_PORTS": "{aggregator.bindings.http.targetPort}",
+        "CATALOG_API_GRPC": "{catalog-api.bindings.Grpc.url}",
+        "services__catalog-api__Grpc__0": "{catalog-api.bindings.Grpc.url}",
+        "CATALOG_API_HTTP": "{catalog-api.bindings.Http.url}",
+        "services__catalog-api__http__0": "{catalog-api.bindings.Http.url}",
+        "CATALOG_API_HTTPS": "{catalog-api.bindings.https.url}",
+        "services__catalog-api__https__0": "{catalog-api.bindings.https.url}",
+        "ORDERS_API_GRPC": "{orders-api.bindings.Grpc.url}",
+        "services__orders-api__Grpc__0": "{orders-api.bindings.Grpc.url}",
+        "ORDERS_API_HTTP": "{orders-api.bindings.Http.url}",
+        "services__orders-api__http__0": "{orders-api.bindings.Http.url}",
+        "ORDERS_API_HTTPS": "{orders-api.bindings.https.url}",
+        "services__orders-api__https__0": "{orders-api.bindings.https.url}",
+        "REVIEWS_API_GRPC": "{reviews-api.bindings.Grpc.url}",
+        "services__reviews-api__Grpc__0": "{reviews-api.bindings.Grpc.url}",
+        "REVIEWS_API_HTTP": "{reviews-api.bindings.Http.url}",
+        "services__reviews-api__http__0": "{reviews-api.bindings.Http.url}",
+        "REVIEWS_API_HTTPS": "{reviews-api.bindings.https.url}",
+        "services__reviews-api__https__0": "{reviews-api.bindings.https.url}",
+        "ConnectionStrings__redis": "{redis.connectionString}",
+        "REDIS_HOST": "{redis.bindings.tcp.host}",
+        "REDIS_PORT": "{redis.bindings.tcp.port}",
+        "REDIS_PASSWORD": "{redis-password.value}",
+        "REDIS_URI": "{redis.bindings.tcp.scheme}://:{redis-password-uri-encoded.value}@{redis.bindings.tcp.host}:{redis.bindings.tcp.port}"
+      },
+      "bindings": {
+        "http": {
+          "scheme": "http",
+          "protocol": "tcp",
+          "transport": "http",
+          "targetPort": 5190
+        },
+        "https": {
+          "scheme": "https",
+          "protocol": "tcp",
+          "transport": "http"
+        }
+      }
+    },
+    "gateway": {
+      "type": "project.v0",
+      "path": "../Platform.ApiGateway/Platform.ApiGateway.csproj",
+      "env": {
+        "OTEL_DOTNET_EXPERIMENTAL_OTLP_RETRY": "in_memory",
+        "ASPNETCORE_FORWARDEDHEADERS_ENABLED": "true",
+        "HTTP_PORTS": "{gateway.bindings.http.targetPort}",
+        "CATALOG_API_HTTP": "{catalog-api.bindings.Http.url}",
+        "services__catalog-api__http__0": "{catalog-api.bindings.Http.url}",
+        "CATALOG_API_HTTPS": "{catalog-api.bindings.https.url}",
+        "services__catalog-api__https__0": "{catalog-api.bindings.https.url}",
+        "ORDERS_API_HTTP": "{orders-api.bindings.Http.url}",
+        "services__orders-api__http__0": "{orders-api.bindings.Http.url}",
+        "ORDERS_API_HTTPS": "{orders-api.bindings.https.url}",
+        "services__orders-api__https__0": "{orders-api.bindings.https.url}",
+        "REVIEWS_API_HTTP": "{reviews-api.bindings.Http.url}",
+        "services__reviews-api__http__0": "{reviews-api.bindings.Http.url}",
+        "REVIEWS_API_HTTPS": "{reviews-api.bindings.https.url}",
+        "services__reviews-api__https__0": "{reviews-api.bindings.https.url}",
+        "AGGREGATOR_HTTP": "{aggregator.bindings.http.url}",
+        "services__aggregator__http__0": "{aggregator.bindings.http.url}",
+        "AGGREGATOR_HTTPS": "{aggregator.bindings.https.url}",
+        "services__aggregator__https__0": "{aggregator.bindings.https.url}",
+        "AUTH_API_HTTP": "{auth-api.bindings.http.url}",
+        "services__auth-api__http__0": "{auth-api.bindings.http.url}",
+        "IDENTITYSERVER_HTTP": "{identityserver.bindings.http.url}",
+        "services__identityserver__http__0": "{identityserver.bindings.http.url}",
+        "PAYMENTS_API_HTTP": "{payments-api.bindings.http.url}",
+        "services__payments-api__http__0": "{payments-api.bindings.http.url}"
+      },
+      "bindings": {
+        "http": {
+          "scheme": "http",
+          "protocol": "tcp",
+          "transport": "http",
+          "port": 5000,
+          "external": true
+        },
+        "https": {
+          "scheme": "https",
+          "protocol": "tcp",
+          "transport": "http",
+          "external": true
+        }
+      }
+    },
+    "redis-password": {
+      "type": "parameter.v0",
+      "value": "{redis-password.inputs.value}",
+      "inputs": {
+        "value": {
+          "type": "string",
+          "secret": true,
+          "default": {
+            "generate": {
+              "minLength": 22,
+              "special": false
+            }
+          }
+        }
+      }
+    },
+    "redis-password-uri-encoded": {
+      "type": "annotated.string",
+      "value": "{redis-password.value}",
+      "filter": "uri"
+    },
+    "mongo-password": {
+      "type": "parameter.v0",
+      "value": "{mongo-password.inputs.value}",
+      "inputs": {
+        "value": {
+          "type": "string",
+          "secret": true,
+          "default": {
+            "generate": {
+              "minLength": 22,
+              "special": false
+            }
+          }
+        }
+      }
+    },
+    "mongo-password-uri-encoded": {
+      "type": "annotated.string",
+      "value": "{mongo-password.value}",
+      "filter": "uri"
+    },
+    "messaging-password": {
+      "type": "parameter.v0",
+      "value": "{messaging-password.inputs.value}",
+      "inputs": {
+        "value": {
+          "type": "string",
+          "secret": true,
+          "default": {
+            "generate": {
+              "minLength": 22,
+              "special": false
+            }
+          }
+        }
+      }
+    },
+    "messaging-password-uri-encoded": {
+      "type": "annotated.string",
+      "value": "{messaging-password.value}",
+      "filter": "uri"
+    },
+    "sql-password-uri-encoded": {
+      "type": "annotated.string",
+      "value": "{sql-password.value}",
+      "filter": "uri"
+    },
+    "cond-redis-bindings-tcp-tlsenabled-d148d83a": {
+      "type": "value.v0",
+      "connectionString": ""
+    },
+    "cond-mongo-bindings-tcp-tlsenabled-6a254ce1": {
+      "type": "value.v0",
+      "connectionString": ""
+    }
+  }
+}

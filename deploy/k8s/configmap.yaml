@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-config
+  namespace: default
+  labels:
+    app: platform
+data:
+  # .NET Aspire / Service Discovery DNS-compatible service endpoints
+  services__catalog-api__http__0: "http://catalog-api.default.svc.cluster.local:80"
+  services__orders-api__http__0: "http://orders-api.default.svc.cluster.local:80"
+  services__reviews-api__http__0: "http://reviews-api.default.svc.cluster.local:80"
+  services__aggregator__http__0: "http://aggregator.default.svc.cluster.local:80"
+  services__auth-api__http__0: "http://auth-api.default.svc.cluster.local:80"
+  services__payments-api__http__0: "http://payments-api.default.svc.cluster.local:80"
+  
+  # Environment configuration
+  ASPNETCORE_ENVIRONMENT: "Production"
+  DOTNET_ENVIRONMENT: "Production"
+  OTEL_SERVICE_NAME: "Platform"

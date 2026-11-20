@@ -1,0 +1,25 @@
+resources:
+- deployment.yaml
+- service.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+configMapGenerator:
+- name: auth-api-env
+  literals:
+    - OTEL_DOTNET_EXPERIMENTAL_OTLP_RETRY=in_memory
+    - ASPNETCORE_FORWARDEDHEADERS_ENABLED=true
+    - HTTP_PORTS=5300
+    - ConnectionStrings__IdentityDb=Server=sql,1433;User ID=sa;Password=SqlPassword123!;TrustServerCertificate=true;Initial Catalog=IdentityDb
+    - IDENTITYDB_HOST=sql
+    - IDENTITYDB_PORT=1433
+    - IDENTITYDB_USERNAME=sa
+    - IDENTITYDB_PASSWORD=SqlPassword123!
+    - IDENTITYDB_URI=mssql://sa:SqlPassword123!@sql:1433/IdentityDb
+    - IDENTITYDB_JDBCCONNECTIONSTRING=jdbc:sqlserver://sql:1433;databaseName=IdentityDb;trustServerCertificate=true
+    - IDENTITYDB_DATABASENAME=IdentityDb
+    - OTEL_EXPORTER_OTLP_ENDPOINT=http://aspire-dashboard:18889
+    - OTEL_SERVICE_NAME=auth-api
+    - ASPNETCORE_URLS=http://+:8080;
+

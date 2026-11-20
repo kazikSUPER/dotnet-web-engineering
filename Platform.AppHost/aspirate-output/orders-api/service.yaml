@@ -1,0 +1,19 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orders-api
+spec:
+  type: ClusterIP
+  selector:
+    app: orders-api
+  ports:
+  - name: Grpc
+    port: 5272
+    targetPort: 5272
+  - name: Http
+    port: 5172
+    targetPort: 5172
+  - name: https
+    port: 5272
+    targetPort: 5272

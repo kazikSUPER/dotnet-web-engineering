@@ -615,6 +615,19 @@ Aggregator 2.4 + обсервабіліті 1.3 = **11.0**.
 | 12 | Clients і тестові користувачі створюються через Pulumi | 0.8 | `infra/keycloak/Clients.cs` та `Users.cs`: клієнти `platform-web` (Code) та `platform-aggregator` (Client Credentials); тестові користувачі для кожної ролі (`admin_user`, `manager_user`, `regular_user`, `guest_user`) з призначеними ролями. |
 | 13 | Permission-based авторизація `[RequirePermission]` на кожному ендпоінті | 1.4 | `Platform.Auth/Attributes/RequirePermissionAttribute.cs`: атрибут встановлено на всіх публічних ендпоінтах Catalog, Orders, Reviews та Payments. Ендпоінти оплат доступні виключно ролі `Admin`. |
 
+### 6.6. Лабораторна №10 (6 критеріїв → 5 балів)
+
+Розгортання мікросервісів у Kubernetes з Aspir8 та ручним деплоєм.
+
+| № | Критерій | Вага | Де реалізовано / Що перевіряється |
+|---|---|---|---|
+| 1 | Маніфести всієї платформи згенеровано aspirate з AppHost | 1.2 | `Platform.AppHost/aspirate-output/`: Kustomize-маніфести для сервісів, Gateway, Aggregator, БД (SQL, Mongo, Redis, RabbitMQ, Keycloak); згенеровано без відкритих секретів (`--disable-secrets`). |
+| 2 | Багатоетапні Dockerfile для `catalog-api` і `gateway` | 1.0 | `Services/Catalog/Catalog.Api/Dockerfile` та `Platform.ApiGateway/Dockerfile`: multi-stage builds (base runtime `aspnet:10.0`, SDK build, publish); спершу копіюються `.csproj` і виконується `dotnet restore` окремим кешованим шаром. |
+| 3 | Deployment з репліками і liveness/readiness-пробами з Лаб. 07 | 1.2 | `deploy/k8s/deployment.yaml`: `replicas: 2`, `imagePullPolicy: IfNotPresent`, `containerPort: 8080`; налаштовані `livenessProbe: /health/live` та `readinessProbe: /health/ready`. |
+| 4 | ClusterIP Service зі стабільним DNS-іменем | 0.5 | `deploy/k8s/service.yaml`: `type: ClusterIP`, селектор за міткою поду (`app: catalog-api`, `app: gateway`), мапінг портів 80 -> 8080. |
+| 5 | ConfigMap з адресами сервісів і Secrets поза репозиторієм | 0.8 | `deploy/k8s/configmap.yaml`: ключі `services__<name>__http__0` з DNS-іменами Service; секрети створюються виключно через `kubectl create secret` (документовано в `deploy/k8s/README.md`); підключення через `envFrom`. |
+| 6 | Health endpoints доступні в усіх середовищах | 0.3 | `Platform.ServiceDefaults/Extensions.cs`: `/health/live` та `/health/ready` зареєстровані глобально для всіх середовищ (не обмежені `IsDevelopment()`). |
+
 ---
 
 ## 7. Додаток: рішення лабораторних №2–4
@@ -649,6 +662,7 @@ Aggregator 2.4 + обсервабіліті 1.3 = **11.0**.
 | №7 | Резильєнтність, метрики та Health Checks | здано на перевірку (`lab-07`) |
 | №8 | Подієва мікросервісна архітектура з RabbitMQ | виконано (`lab-08`) |
 | №9 | Аутентифікація та авторизація (Identity, IdentityServer, Keycloak) | виконано (`lab-09`) |
+| №10 | Розгортання в Kubernetes з Aspir8 та ручним деплоєм | виконано (`lab-10`) |
 
 ## 9. Корисні команди
 

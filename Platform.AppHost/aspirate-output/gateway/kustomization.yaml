@@ -1,0 +1,31 @@
+resources:
+- deployment.yaml
+- service.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+configMapGenerator:
+- name: gateway-env
+  literals:
+    - OTEL_DOTNET_EXPERIMENTAL_OTLP_RETRY=in_memory
+    - ASPNETCORE_FORWARDEDHEADERS_ENABLED=true
+    - HTTP_PORTS=8080
+    - CATALOG_API_HTTP=catalog-api:5173
+    - services__catalog-api__http__0=catalog-api:5173
+    - ORDERS_API_HTTP=orders-api:5172
+    - services__orders-api__http__0=orders-api:5172
+    - REVIEWS_API_HTTP=reviews-api:5180
+    - services__reviews-api__http__0=reviews-api:5180
+    - AGGREGATOR_HTTP=http://aggregator:5190
+    - services__aggregator__http__0=http://aggregator:5190
+    - AUTH_API_HTTP=http://auth-api:5300
+    - services__auth-api__http__0=http://auth-api:5300
+    - IDENTITYSERVER_HTTP=http://identityserver:5400
+    - services__identityserver__http__0=http://identityserver:5400
+    - PAYMENTS_API_HTTP=http://payments-api:5185
+    - services__payments-api__http__0=http://payments-api:5185
+    - OTEL_EXPORTER_OTLP_ENDPOINT=http://aspire-dashboard:18889
+    - OTEL_SERVICE_NAME=gateway
+    - ASPNETCORE_URLS=http://+:8080;
+

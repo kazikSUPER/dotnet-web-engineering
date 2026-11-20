@@ -1,0 +1,34 @@
+resources:
+- deployment.yaml
+- service.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+configMapGenerator:
+- name: aggregator-env
+  literals:
+    - OTEL_DOTNET_EXPERIMENTAL_OTLP_RETRY=in_memory
+    - ASPNETCORE_FORWARDEDHEADERS_ENABLED=true
+    - HTTP_PORTS=5190
+    - CATALOG_API_GRPC=catalog-api:5273
+    - services__catalog-api__Grpc__0=catalog-api:5273
+    - CATALOG_API_HTTP=catalog-api:5173
+    - services__catalog-api__http__0=catalog-api:5173
+    - ORDERS_API_GRPC=orders-api:5272
+    - services__orders-api__Grpc__0=orders-api:5272
+    - ORDERS_API_HTTP=orders-api:5172
+    - services__orders-api__http__0=orders-api:5172
+    - REVIEWS_API_GRPC=reviews-api:5280
+    - services__reviews-api__Grpc__0=reviews-api:5280
+    - REVIEWS_API_HTTP=reviews-api:5180
+    - services__reviews-api__http__0=reviews-api:5180
+    - ConnectionStrings__redis=redis:6379,password=yzwPThE4crr0SGfpeJGkh5
+    - REDIS_HOST=redis
+    - REDIS_PORT=6379
+    - REDIS_PASSWORD=yzwPThE4crr0SGfpeJGkh5
+    - REDIS_URI=http://:{redis-password-uri-encoded.value}@redis:6379
+    - OTEL_EXPORTER_OTLP_ENDPOINT=http://aspire-dashboard:18889
+    - OTEL_SERVICE_NAME=aggregator
+    - ASPNETCORE_URLS=http://+:8080;
+
