@@ -2,6 +2,8 @@ using Duende.IdentityServer.EntityFramework.DbContexts;
 using Duende.IdentityServer.EntityFramework.Mappers;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Storage;
 using Platform.IdentityServer;
 using Platform.IdentityServer.Data;
 using Platform.ServiceDefaults;
@@ -68,6 +70,20 @@ app.MapDefaultEndpoints();
 
 await app.RunAsync();
 
+static async Task EnsureTablesCreatedAsync(DbContext context)
+{
+    try
+    {
+        await context.Database.EnsureCreatedAsync();
+        var creator = (RelationalDatabaseCreator)context.Database.GetService<IDatabaseCreator>();
+        await creator.CreateTablesAsync();
+    }
+    catch (Exception)
+    {
+        // Tables already created or exist
+    }
+}
+
 static async Task InitializeDatabaseAsync(WebApplication app)
 {
     using var scope = app.Services.CreateScope();
@@ -76,13 +92,13 @@ static async Task InitializeDatabaseAsync(WebApplication app)
     try
     {
         var userDb = scope.ServiceProvider.GetRequiredService<IdentityServerUserDbContext>();
-        try { await userDb.Database.MigrateAsync(); } catch { await userDb.Database.EnsureCreatedAsync(); }
+        await EnsureTablesCreatedAsync(userDb);
 
         var configDb = scope.ServiceProvider.GetRequiredService<ConfigurationDbContext>();
-        try { await configDb.Database.MigrateAsync(); } catch { await configDb.Database.EnsureCreatedAsync(); }
+        await EnsureTablesCreatedAsync(configDb);
 
         var persistedDb = scope.ServiceProvider.GetRequiredService<PersistedGrantDbContext>();
-        try { await persistedDb.Database.MigrateAsync(); } catch { await persistedDb.Database.EnsureCreatedAsync(); }
+        await EnsureTablesCreatedAsync(persistedDb);
 
         // Seed Identity Resources
         if (!await configDb.IdentityResources.AnyAsync())
