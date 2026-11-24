@@ -30,7 +30,8 @@ public static class AuthEndpoints
                 UserName = request.Email,
                 Email = request.Email,
                 FirstName = request.FirstName,
-                LastName = request.LastName
+                LastName = request.LastName,
+                EmailConfirmed = true
             };
 
             var result = await userManager.CreateAsync(user, request.Password);

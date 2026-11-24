@@ -39,8 +39,42 @@ public class ProductsController(IProductService service, CatalogMetrics metrics)
     [RequirePermission("products.write")]
     public async Task<IActionResult> Create([FromBody] CreateProductRequest request, CancellationToken ct)
     {
-        var product = await service.CreateProductAsync(request.Name, request.Price, request.Stock, request.CategoryId, request.CategoryName, ct);
-        return CreatedAtAction(nameof(GetCard), new { id = product.Id }, product);
+        if (string.IsNullOrWhiteSpace(request.Name))
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = "One or more validation errors occurred.",
+                Detail = "Назва товару є обов'язковою.",
+                Instance = HttpContext.Request.Path
+            });
+        }
+        if (request.Price <= 0)
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = "One or more validation errors occurred.",
+                Detail = "Ціна товару має бути більшою за нуль.",
+                Instance = HttpContext.Request.Path
+            });
+        }
+
+        try
+        {
+            var product = await service.CreateProductAsync(request.Name, request.Price, request.Stock, request.CategoryId, request.CategoryName, ct);
+            return CreatedAtAction(nameof(GetCard), new { id = product.Id }, product);
+        }
+        catch (Catalog.Domain.Exceptions.DomainValidationException ex)
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = "One or more validation errors occurred.",
+                Detail = ex.Message,
+                Instance = HttpContext.Request.Path
+            });
+        }
     }
 
     [HttpPatch("{id:int}/name")]

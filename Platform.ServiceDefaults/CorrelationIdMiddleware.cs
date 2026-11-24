@@ -32,7 +32,14 @@ public sealed class CorrelationIdMiddleware(RequestDelegate next)
         using (LogContext.PushProperty("CorrelationOrigin", wasSuppliedByClient ? "client" : "generated"))
         using (userId is null ? null : LogContext.PushProperty("UserId", userId))
         {
-            await next(context);
+            try
+            {
+                await next(context);
+            }
+            catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+            {
+                // Gracefully handle client disconnect without triggering unhandled debugger exceptions
+            }
         }
     }
 

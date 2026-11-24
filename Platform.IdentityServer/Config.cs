@@ -85,8 +85,11 @@ public static class Config
             AllowedScopes =
             {
                 "orders.read",
+                "orders.write",
                 "products.read",
-                "reviews.read"
+                "products.write",
+                "reviews.read",
+                "reviews.write"
             }
         },
 

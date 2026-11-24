@@ -39,8 +39,8 @@ public class ClientCredentialsTokenHandler(
             {
                 ["grant_type"] = "client_credentials",
                 ["client_id"] = "aggregator",
-                ["client_secret"] = "aggregator_secret",
-                ["scope"] = "catalog.read orders.read reviews.read"
+                ["client_secret"] = "aggregator-secret",
+                ["scope"] = "products.read orders.read reviews.read"
             }), cancellationToken);
 
             if (response.IsSuccessStatusCode)

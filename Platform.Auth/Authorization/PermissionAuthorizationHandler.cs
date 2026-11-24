@@ -29,7 +29,9 @@ public class PermissionAuthorizationHandler : AuthorizationHandler<PermissionReq
         var hasScope = context.User.Claims
             .Where(c => c.Type is "scope" or "scp")
             .SelectMany(c => c.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries))
-            .Any(s => string.Equals(s, requirement.Permission, StringComparison.OrdinalIgnoreCase));
+            .Any(s => string.Equals(s, requirement.Permission, StringComparison.OrdinalIgnoreCase)
+                   || (requirement.Permission == "categories.read" && (s == "products.read" || s == "categories.read" || s == "catalog.read"))
+                   || (requirement.Permission == "categories.write" && (s == "products.write" || s == "categories.write" || s == "catalog.write")));
 
         if (hasScope)
         {

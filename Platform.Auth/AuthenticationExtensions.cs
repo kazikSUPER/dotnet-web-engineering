@@ -32,43 +32,38 @@ public static class AuthenticationExtensions
             options.RequireHttpsMetadata = authOptions.RequireHttpsMetadata;
             options.SaveToken = true;
 
-            var provider = authOptions.Provider.ToLowerInvariant();
+            var symmetricKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(authOptions.SigningKey));
 
-            if (provider == "identity")
+            options.TokenValidationParameters = new TokenValidationParameters
             {
-                // Self-contained ASP.NET Identity with symmetric key
-                var key = Encoding.UTF8.GetBytes(authOptions.SigningKey);
-                options.TokenValidationParameters = new TokenValidationParameters
+                ValidateIssuer = true,
+                ValidIssuers = new[]
                 {
-                    ValidateIssuerSigningKey = true,
-                    IssuerSigningKey = new SymmetricSecurityKey(key),
-                    ValidateIssuer = !string.IsNullOrEmpty(authOptions.Authority),
-                    ValidIssuer = authOptions.Authority,
-                    ValidateAudience = !string.IsNullOrEmpty(authOptions.Audience),
-                    ValidAudience = authOptions.Audience,
-                    ValidateLifetime = true,
-                    ClockSkew = TimeSpan.FromSeconds(30),
-                    RoleClaimType = ClaimTypes.Role,
-                    NameClaimType = ClaimTypes.Name
-                };
-            }
-            else if (provider is "duende" or "keycloak")
-            {
-                // OIDC Authority with JWKS endpoint
-                options.Authority = authOptions.Authority;
-                options.Audience = authOptions.Audience;
-                options.TokenValidationParameters = new TokenValidationParameters
+                    "http://localhost:5400",
+                    "http://localhost:5300",
+                    "http://localhost:8080/realms/platform",
+                    "http://identityserver:5400",
+                    "http://auth-api:5300",
+                    authOptions.Authority
+                }.Where(s => !string.IsNullOrWhiteSpace(s)).Distinct().ToArray(),
+
+                ValidateAudience = false,
+                ValidateLifetime = true,
+                ClockSkew = TimeSpan.FromSeconds(30),
+                RoleClaimType = ClaimTypes.Role,
+                NameClaimType = ClaimTypes.Name,
+
+                IssuerSigningKeyResolver = (token, securityToken, kid, validationParameters) =>
                 {
-                    ValidateIssuer = true,
-                    ValidIssuer = authOptions.Authority,
-                    ValidateAudience = !string.IsNullOrEmpty(authOptions.Audience),
-                    ValidAudience = authOptions.Audience,
-                    ValidateLifetime = true,
-                    ClockSkew = TimeSpan.FromSeconds(30),
-                    RoleClaimType = ClaimTypes.Role,
-                    NameClaimType = ClaimTypes.Name
-                };
-            }
+                    var keys = new List<SecurityKey> { symmetricKey };
+                    var isKey = LoadIdentityServerKey();
+                    if (isKey is not null)
+                    {
+                        keys.Add(isKey);
+                    }
+                    return keys;
+                }
+            };
 
             configureJwt?.Invoke(options);
         });
@@ -76,6 +71,38 @@ public static class AuthenticationExtensions
         services.AddTransient<IClaimsTransformation, KeycloakClaimsTransformation>();
 
         return services;
+    }
+
+    private static SecurityKey? _cachedIdentityServerKey;
+    private static SecurityKey? LoadIdentityServerKey()
+    {
+        if (_cachedIdentityServerKey is not null) return _cachedIdentityServerKey;
+
+        try
+        {
+            var possiblePaths = new[]
+            {
+                Path.Combine(AppContext.BaseDirectory, "tempkey.jwk"),
+                Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "Platform.IdentityServer", "tempkey.jwk"),
+                @"D:\ІФТКН\4 КУРС\1 семестр\Технології .NET у веб-інженерії\+\Platform.IdentityServer\tempkey.jwk"
+            };
+
+            foreach (var path in possiblePaths)
+            {
+                if (File.Exists(path))
+                {
+                    var json = File.ReadAllText(path);
+                    _cachedIdentityServerKey = new JsonWebKey(json);
+                    return _cachedIdentityServerKey;
+                }
+            }
+        }
+        catch
+        {
+            // Ignore if key is not found yet
+        }
+
+        return null;
     }
 
     public static IServiceCollection AddPlatformAuthorization(this IServiceCollection services)
@@ -99,10 +126,13 @@ public static class AuthenticationExtensions
                 ctx.User.HasClaim(c => c.Type == "scope" && c.Value.Contains("payments.all"))));
 
             options.AddPolicy("catalog.read", policy => policy.RequireAssertion(ctx =>
+                ctx.User.IsInRole("User") || ctx.User.IsInRole("Admin") || ctx.User.IsInRole("Manager") ||
                 ctx.User.HasClaim(c => (c.Type == "scope" && (c.Value.Contains("catalog.read") || c.Value.Contains("products.read"))) || (c.Type == "permission" && c.Value == "products.read"))));
             options.AddPolicy("orders.read", policy => policy.RequireAssertion(ctx =>
+                ctx.User.IsInRole("User") || ctx.User.IsInRole("Admin") || ctx.User.IsInRole("Manager") ||
                 ctx.User.HasClaim(c => (c.Type == "scope" && c.Value.Contains("orders.read")) || (c.Type == "permission" && c.Value == "orders.read"))));
             options.AddPolicy("reviews.read", policy => policy.RequireAssertion(ctx =>
+                ctx.User.IsInRole("User") || ctx.User.IsInRole("Admin") || ctx.User.IsInRole("Manager") ||
                 ctx.User.HasClaim(c => (c.Type == "scope" && c.Value.Contains("reviews.read")) || (c.Type == "permission" && c.Value == "reviews.read"))));
         });
 

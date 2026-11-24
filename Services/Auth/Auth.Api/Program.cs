@@ -104,6 +104,32 @@ static async Task InitializeIdentityDatabaseAsync(WebApplication app)
                 logger.LogInformation("Seeded default Admin user: {Email}", adminEmail);
             }
         }
+
+        // Seed default Student user
+        const string studentEmail = "student@bakery.com";
+        var student = await userManager.FindByEmailAsync(studentEmail);
+        if (student is null)
+        {
+            student = new ApplicationUser
+            {
+                UserName = studentEmail,
+                Email = studentEmail,
+                FirstName = "Студент",
+                LastName = "ЧНУ",
+                EmailConfirmed = true
+            };
+            var studentResult = await userManager.CreateAsync(student, "Password123!");
+            if (studentResult.Succeeded)
+            {
+                await userManager.AddToRoleAsync(student, "User");
+                logger.LogInformation("Seeded default Student user: {Email}", studentEmail);
+            }
+        }
+        else if (!student.EmailConfirmed)
+        {
+            student.EmailConfirmed = true;
+            await userManager.UpdateAsync(student);
+        }
     }
     catch (Exception ex)
     {
