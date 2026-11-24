@@ -26,7 +26,7 @@ public class PaymentService(
     public async Task<PaymentResponseDto?> GetByOrderIdAsync(int orderId, CancellationToken ct = default) => await cache.GetOrCreateAsync(
         CacheKeys.PaymentByOrder(orderId),
         async token => mapper.Map<PaymentResponseDto?>(await uow.Payments.GetByOrderIdAsync(orderId, token)),
-        l1Ttl: TimeSpan.FromMinutes(2),
+        l1Ttl: TimeSpan.FromSeconds(30),
         l2Ttl: TimeSpan.FromMinutes(5),
         ct);
 

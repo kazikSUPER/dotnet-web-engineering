@@ -11,4 +11,6 @@ public class UnitOfWork(CatalogDbContext context) : IUnitOfWork
     public IProductRepository Products => products ??= new ProductRepository(context);
     public Task<int> SaveChangesAsync(CancellationToken ct = default) => context.SaveChangesAsync(ct);
     public async Task<IDisposable> BeginTransactionAsync(CancellationToken ct = default) => await context.Database.BeginTransactionAsync(ct);
+    public Task CommitTransactionAsync(CancellationToken ct = default) => context.Database.CommitTransactionAsync(ct);
+    public Task RollbackTransactionAsync(CancellationToken ct = default) => context.Database.RollbackTransactionAsync(ct);
 }

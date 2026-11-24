@@ -14,6 +14,8 @@ public sealed record ReviewFilter
 
     public string? Tag { get; init; }
 
+    public int Skip { get; init; } = 0;
+
     public ReviewSortField Sort { get; init; } = ReviewSortField.CreatedAt;
 
     public bool Descending { get; init; } = true;

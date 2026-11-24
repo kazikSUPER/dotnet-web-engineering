@@ -54,11 +54,13 @@ public sealed class ReviewQueries(MongoDbContext db, IMapper mapper) : IReviewQu
             conditions.Add(BuildCursorCondition(filter, token));
         }
 
-        var documents = await db.Reviews
+        var query = db.Reviews
             .Find(db.Session, Combine(builder, conditions))
             .Sort(BuildSort(filter))
-            .Limit(limit + 1)
-            .ToListAsync(ct);
+            .Skip(filter.Skip)
+            .Limit(limit + 1);
+
+        var documents = await query.ToListAsync(ct);
 
         var hasMore = documents.Count > limit;
         var page = hasMore ? documents.Take(limit).ToArray() : documents.ToArray();

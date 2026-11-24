@@ -18,6 +18,7 @@ builder.Services.AddReverseProxy()
 var app = builder.Build();
 
 app.UsePlatformDefaults("ApiGateway");
+app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseMiddleware<RouteLoggingMiddleware>();

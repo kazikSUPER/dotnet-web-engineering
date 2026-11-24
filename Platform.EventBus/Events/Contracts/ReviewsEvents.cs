@@ -7,7 +7,10 @@ public sealed record ReviewCreatedEvent(
     int CustomerId,
     int Rating,
     double NewAverageRating,
-    int TotalReviews) : IntegrationEvent;
+    int TotalReviews,
+    Guid EventId = default,
+    string? CorrelationId = null,
+    DateTime OccurredAt = default) : IntegrationEvent(EventId, CorrelationId, OccurredAt);
 
 [EventRoutingKey("reviews.review.moderated")]
 public sealed record ReviewModeratedEvent(
@@ -15,4 +18,7 @@ public sealed record ReviewModeratedEvent(
     int ProductId,
     string Action,
     double NewAverageRating,
-    int TotalReviews) : IntegrationEvent;
+    int TotalReviews,
+    Guid EventId = default,
+    string? CorrelationId = null,
+    DateTime OccurredAt = default) : IntegrationEvent(EventId, CorrelationId, OccurredAt);

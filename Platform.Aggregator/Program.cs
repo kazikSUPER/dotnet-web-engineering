@@ -97,21 +97,26 @@ builder.Services.AddGrpcClient<Reviews.WebApi.Grpc.ReviewsService.ReviewsService
 .RemoveAllResilienceHandlers()
 .AddInterceptor<GrpcClientLoggingInterceptor>();
 
+builder.Services.AddTransient<ClientCredentialsTokenHandler>();
+
 builder.Services.AddHttpClient<OrdersClient>(client =>
 {
     client.BaseAddress = new Uri("https+http://orders-api");
     client.Timeout = TimeSpan.FromSeconds(5);
-});
+}).AddHttpMessageHandler<ClientCredentialsTokenHandler>();
+
 builder.Services.AddHttpClient<CatalogClient>(client =>
 {
     client.BaseAddress = new Uri("https+http://catalog-api");
     client.Timeout = TimeSpan.FromSeconds(5);
-});
+}).AddHttpMessageHandler<ClientCredentialsTokenHandler>();
+
 builder.Services.AddHttpClient<ReviewsClient>(client =>
 {
     client.BaseAddress = new Uri("https+http://reviews-api");
     client.Timeout = TimeSpan.FromSeconds(5);
 })
+.AddHttpMessageHandler<ClientCredentialsTokenHandler>()
 .RemoveAllResilienceHandlers()
 .AddStandardResilienceHandler(options =>
 {

@@ -30,4 +30,6 @@ spec:
         envFrom:
         - configMapRef:
             name: keycloak-env
+        - secretRef:
+            name: keycloak-secret
       terminationGracePeriodSeconds: 180

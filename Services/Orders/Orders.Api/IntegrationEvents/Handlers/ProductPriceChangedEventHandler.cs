@@ -25,17 +25,10 @@ public sealed class ProductPriceChangedEventHandler(
         logger.LogInformation("Orders replica updated: product {ProductId} price changed from {OldPrice} to {NewPrice}",
             @event.ProductId, @event.OldPrice, @event.NewPrice);
 
-        // Update local products table if table exists
-        try
-        {
-            await db.Database.ExecuteSqlInterpolatedAsync(
-                $"IF EXISTS (SELECT 1 FROM dbo.Products WHERE Id = {@event.ProductId}) UPDATE dbo.Products SET Price = {@event.NewPrice}, UpdatedAt = SYSUTCDATETIME() WHERE Id = {@event.ProductId}",
-                cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to update local Products table replica for product {ProductId}", @event.ProductId);
-        }
+        // Update local products table replica with timestamp protection against outdated messages
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"IF EXISTS (SELECT 1 FROM dbo.Products WHERE Id = {@event.ProductId}) UPDATE dbo.Products SET Price = {@event.NewPrice}, UpdatedAt = {@event.OccurredAt} WHERE Id = {@event.ProductId} AND (UpdatedAt < {@event.OccurredAt} OR UpdatedAt IS NULL)",
+            cancellationToken);
 
         db.ProcessedEvents.Add(new ProcessedEvent
         {

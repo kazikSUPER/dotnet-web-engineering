@@ -28,7 +28,7 @@ public sealed class GrpcOrderAggregateService(
         var cached = await cache.TryGetAsync<GrpcOrderAggregateDto>(key, ct);
         if (cached is not null)
         {
-            metrics.RecordDuration(sw.Elapsed.TotalMilliseconds, "full");
+            metrics.RecordDuration(sw.Elapsed.TotalMilliseconds, "success");
             return cached with { Cached = true };
         }
 
@@ -42,13 +42,13 @@ public sealed class GrpcOrderAggregateService(
         }
         catch (RpcException exception) when (exception.StatusCode == StatusCode.NotFound)
         {
-            metrics.RecordDuration(sw.Elapsed.TotalMilliseconds, "failed");
+            metrics.RecordDuration(sw.Elapsed.TotalMilliseconds, "failure");
             return null;
         }
         catch (RpcException exception) when (Degradable.Contains(exception.StatusCode))
         {
             metrics.RecordUpstreamFailure("orders");
-            metrics.RecordDuration(sw.Elapsed.TotalMilliseconds, "failed");
+            metrics.RecordDuration(sw.Elapsed.TotalMilliseconds, "failure");
             throw new GrpcDownstreamUnavailableException("orders", exception);
         }
 
@@ -81,12 +81,12 @@ public sealed class GrpcOrderAggregateService(
         if (warnings.IsEmpty)
         {
             await cache.SetAsync(key, result, AggregatedCache.Ttl, ct);
-            metrics.RecordDuration(sw.Elapsed.TotalMilliseconds, "full");
+            metrics.RecordDuration(sw.Elapsed.TotalMilliseconds, "success");
         }
         else
         {
             logger.LogWarning("Частковий gRPC-агрегат замовлення {OrderId} не кешується: {WarningCount} попереджень", orderId, warnings.Count);
-            metrics.RecordDuration(sw.Elapsed.TotalMilliseconds, "partial");
+            metrics.RecordDuration(sw.Elapsed.TotalMilliseconds, "success");
         }
 
         return result;

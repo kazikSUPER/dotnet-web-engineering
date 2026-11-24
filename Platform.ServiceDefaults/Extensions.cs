@@ -39,6 +39,7 @@ public static class Extensions
 
         builder.Services.ConfigureHttpClientDefaults(http =>
         {
+            http.ConfigureHttpClient(client => client.Timeout = TimeSpan.FromSeconds(25));
             http.AddServiceDiscovery();
             http.AddHttpMessageHandler<CorrelationIdPropagationHandler>();
             http.AddStandardResilienceHandler(options =>
@@ -75,7 +76,7 @@ public static class Extensions
                 };
 
                 options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(3);
-                options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(10);
+                options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(20);
             });
         });
 

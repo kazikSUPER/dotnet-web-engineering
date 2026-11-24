@@ -14,20 +14,35 @@ public sealed class CatalogGrpcService(IProductService products) : CatalogServic
             throw new RpcException(new Status(StatusCode.InvalidArgument, "Product id must be positive."));
         }
 
-        var product = await products.GetByIdAsync(request.Id, context.CancellationToken);
-        if (product is null)
+        try
         {
-            throw new RpcException(new Status(StatusCode.NotFound, $"Product {request.Id} was not found."));
-        }
+            var product = await products.GetByIdAsync(request.Id, context.CancellationToken);
+            if (product is null)
+            {
+                throw new RpcException(new Status(StatusCode.NotFound, $"Product {request.Id} was not found."));
+            }
 
-        return new ProductReply
+            return new ProductReply
+            {
+                Id = product.Id,
+                Name = product.Name,
+                Price = product.Price.ToString("0.00", CultureInfo.InvariantCulture),
+                Stock = product.Stock,
+                IsAvailable = product.IsAvailable,
+            };
+        }
+        catch (Catalog.Domain.Exceptions.NotFoundException ex)
         {
-            Id = product.Id,
-            Name = product.Name,
-            Price = product.Price.ToString("0.00", CultureInfo.InvariantCulture),
-            Stock = product.Stock,
-            IsAvailable = product.IsAvailable,
-        };
+            throw new RpcException(new Status(StatusCode.NotFound, ex.Message));
+        }
+        catch (Catalog.Domain.Exceptions.BusinessConflictException ex)
+        {
+            throw new RpcException(new Status(StatusCode.AlreadyExists, ex.Message));
+        }
+        catch (Catalog.Domain.Exceptions.DomainValidationException ex)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message));
+        }
     }
 
     public override async Task<ProductsByCategoryReply> GetProductsByCategory(GetProductsByCategoryRequest request, ServerCallContext context)

@@ -14,35 +14,50 @@ public sealed class OrdersGrpcService(IOrderService orders) : OrdersService.Orde
             throw new RpcException(new Status(StatusCode.InvalidArgument, "Order id must be positive."));
         }
 
-        var order = await orders.GetByIdAsync(request.Id, context.CancellationToken);
-        if (order is null)
+        try
         {
-            throw new RpcException(new Status(StatusCode.NotFound, $"Order {request.Id} was not found."));
-        }
-
-        var reply = new OrderReply
-        {
-            Id = order.Id,
-            OrderNumber = order.OrderNumber,
-            CustomerId = order.CustomerId,
-            CustomerName = order.CustomerName ?? string.Empty,
-            Status = order.Status,
-            TotalAmount = order.TotalAmount.ToString("0.00", CultureInfo.InvariantCulture),
-            OrderDate = order.OrderDate.ToString("O"),
-        };
-
-        foreach (var item in order.Items)
-        {
-            reply.Items.Add(new OrderItemReply
+            var order = await orders.GetByIdAsync(request.Id, context.CancellationToken);
+            if (order is null)
             {
-                ProductId = item.ProductId,
-                ProductName = item.ProductName,
-                UnitPrice = item.UnitPrice.ToString("0.00", CultureInfo.InvariantCulture),
-                Quantity = item.Quantity,
-                TotalPrice = item.TotalPrice.ToString("0.00", CultureInfo.InvariantCulture),
-            });
-        }
+                throw new RpcException(new Status(StatusCode.NotFound, $"Order {request.Id} was not found."));
+            }
 
-        return reply;
+            var reply = new OrderReply
+            {
+                Id = order.Id,
+                OrderNumber = order.OrderNumber,
+                CustomerId = order.CustomerId,
+                CustomerName = order.CustomerName ?? string.Empty,
+                Status = order.Status,
+                TotalAmount = order.TotalAmount.ToString("0.00", CultureInfo.InvariantCulture),
+                OrderDate = order.OrderDate.ToString("O"),
+            };
+
+            foreach (var item in order.Items)
+            {
+                reply.Items.Add(new OrderItemReply
+                {
+                    ProductId = item.ProductId,
+                    ProductName = item.ProductName,
+                    UnitPrice = item.UnitPrice.ToString("0.00", CultureInfo.InvariantCulture),
+                    Quantity = item.Quantity,
+                    TotalPrice = item.TotalPrice.ToString("0.00", CultureInfo.InvariantCulture),
+                });
+            }
+
+            return reply;
+        }
+        catch (Orders.Domain.Exceptions.NotFoundException ex)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, ex.Message));
+        }
+        catch (Orders.Domain.Exceptions.BusinessConflictException ex)
+        {
+            throw new RpcException(new Status(StatusCode.AlreadyExists, ex.Message));
+        }
+        catch (Orders.Domain.Exceptions.DomainValidationException ex)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message));
+        }
     }
 }

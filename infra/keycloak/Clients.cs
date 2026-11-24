@@ -3,9 +3,11 @@ using Pulumi.Keycloak.OpenId;
 
 namespace Infra.Keycloak;
 
+public record ClientsResult(Client WebClient, Client AggregatorClient, Client OrdersApi, Client ProductsApi, Client PaymentsApi);
+
 public static class ClientsFactory
 {
-    public static void CreateClientsAndResourceServers(Realm realm)
+    public static ClientsResult CreateClientsAndResourceServers(Realm realm)
     {
         // 11. Resource servers
         var ordersApi = new Client("client-orders-api", new ClientArgs
@@ -66,6 +68,28 @@ public static class ClientsFactory
             StandardFlowEnabled = false
         });
 
+        // 12. Scopes
+        var catalogScope = new ClientScope("scope-catalog-read", new ClientScopeArgs
+        {
+            RealmId = realm.Id,
+            Name = "catalog.read",
+            Description = "Read access to catalog"
+        });
+
+        var ordersScope = new ClientScope("scope-orders-read", new ClientScopeArgs
+        {
+            RealmId = realm.Id,
+            Name = "orders.read",
+            Description = "Read access to orders"
+        });
+
+        var reviewsScope = new ClientScope("scope-reviews-read", new ClientScopeArgs
+        {
+            RealmId = realm.Id,
+            Name = "reviews.read",
+            Description = "Read access to reviews"
+        });
+
         // 12. Protocol mapper: map client realm roles and permissions to token
         var roleMapper = new AudienceProtocolMapper("mapper-audience", new AudienceProtocolMapperArgs
         {
@@ -74,5 +98,19 @@ public static class ClientsFactory
             Name = "audience-mapper",
             IncludedCustomAudience = "platform-api"
         });
+
+        var permissionsMapper = new UserAttributeProtocolMapper("mapper-permissions", new UserAttributeProtocolMapperArgs
+        {
+            RealmId = realm.Id,
+            ClientId = webClient.Id,
+            Name = "permissions-mapper",
+            UserAttribute = "permissions",
+            ClaimName = "permissions",
+            ClaimValueType = "String",
+            AddToIdToken = true,
+            AddToAccessToken = true
+        });
+
+        return new ClientsResult(webClient, aggregatorClient, ordersApi, productsApi, paymentsApi);
     }
 }

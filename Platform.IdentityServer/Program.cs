@@ -76,13 +76,13 @@ static async Task InitializeDatabaseAsync(WebApplication app)
     try
     {
         var userDb = scope.ServiceProvider.GetRequiredService<IdentityServerUserDbContext>();
-        await userDb.Database.EnsureCreatedAsync();
+        try { await userDb.Database.MigrateAsync(); } catch { await userDb.Database.EnsureCreatedAsync(); }
 
         var configDb = scope.ServiceProvider.GetRequiredService<ConfigurationDbContext>();
-        await configDb.Database.EnsureCreatedAsync();
+        try { await configDb.Database.MigrateAsync(); } catch { await configDb.Database.EnsureCreatedAsync(); }
 
         var persistedDb = scope.ServiceProvider.GetRequiredService<PersistedGrantDbContext>();
-        await persistedDb.Database.EnsureCreatedAsync();
+        try { await persistedDb.Database.MigrateAsync(); } catch { await persistedDb.Database.EnsureCreatedAsync(); }
 
         // Seed Identity Resources
         if (!await configDb.IdentityResources.AnyAsync())

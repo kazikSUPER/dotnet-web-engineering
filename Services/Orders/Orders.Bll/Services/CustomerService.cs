@@ -14,15 +14,15 @@ public class CustomerService(IUnitOfWork uow, IMapper mapper, ICacheService cach
     public async Task<CustomerResponseDto?> GetByIdAsync(int id, CancellationToken ct = default) => await cache.GetOrCreateAsync(
         CacheKeys.Customer(id),
         async token => mapper.Map<CustomerResponseDto?>(await uow.Customers.GetByIdAsync(id, token)),
-        l1Ttl: TimeSpan.FromMinutes(2),
+        l1Ttl: TimeSpan.FromSeconds(30),
         l2Ttl: TimeSpan.FromMinutes(5),
         ct);
 
     public async Task<IReadOnlyList<CustomerResponseDto>> GetAllAsync(CancellationToken ct = default) => await cache.GetOrCreateAsync(
         CacheKeys.CustomersList(),
         async token => mapper.Map<List<CustomerResponseDto>>(await uow.Customers.GetAllAsync(token)),
-        l1Ttl: TimeSpan.FromMinutes(1),
-        l2Ttl: TimeSpan.FromMinutes(2),
+        l1Ttl: TimeSpan.FromSeconds(30),
+        l2Ttl: TimeSpan.FromMinutes(5),
         ct);
 
     public async Task<CustomerResponseDto> CreateAsync(CreateCustomerRequest request, CancellationToken ct = default)

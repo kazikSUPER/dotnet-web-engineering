@@ -18,7 +18,7 @@ public sealed class CachingBehavior<TRequest, TResponse>(ICacheService cache, IL
         logger.LogDebug("Кеш {CacheKey}: перевірка L1 → L2 → джерела", cacheable.CacheKey);
 
         var halfTtl = TimeSpan.FromTicks(cacheable.Ttl.Ticks / 2);
-        var l1Ttl = halfTtl < TimeSpan.FromMinutes(2) ? halfTtl : TimeSpan.FromMinutes(2);
+        var l1Ttl = halfTtl < TimeSpan.FromSeconds(30) ? halfTtl : TimeSpan.FromSeconds(30);
 
         return await cache.GetOrCreateAsync(
             cacheable.CacheKey,

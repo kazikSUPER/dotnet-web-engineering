@@ -9,7 +9,11 @@ configMapGenerator:
 - name: mongo-env
   literals:
     - MONGO_INITDB_ROOT_USERNAME=admin
-    - MONGO_INITDB_ROOT_PASSWORD=l7mm9Sl5UwjIXlcfEUWlVY
     - OTEL_EXPORTER_OTLP_ENDPOINT=http://aspire-dashboard:18889
     - OTEL_SERVICE_NAME=mongo
+
+secretGenerator:
+- name: mongo-secret
+  literals:
+    - MONGO_INITDB_ROOT_PASSWORD=l7mm9Sl5UwjIXlcfEUWlVY
 

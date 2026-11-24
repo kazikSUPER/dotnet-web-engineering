@@ -51,7 +51,7 @@ public class ProductService(
 
             return card;
         },
-        l1Ttl: TimeSpan.FromMinutes(2),
+        l1Ttl: TimeSpan.FromSeconds(30),
         l2Ttl: TimeSpan.FromMinutes(5),
         ct);
 
@@ -73,7 +73,7 @@ public class ProductService(
 
             return products;
         },
-        l1Ttl: TimeSpan.FromMinutes(2),
+        l1Ttl: TimeSpan.FromSeconds(30),
         l2Ttl: TimeSpan.FromMinutes(5),
         ct);
 
@@ -105,7 +105,7 @@ public class ProductService(
 
             return dto;
         },
-        l1Ttl: TimeSpan.FromMinutes(2),
+        l1Ttl: TimeSpan.FromSeconds(30),
         l2Ttl: TimeSpan.FromMinutes(5),
         ct);
 

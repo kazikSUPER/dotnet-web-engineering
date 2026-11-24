@@ -25,6 +25,8 @@ spec:
           envFrom:
             - configMapRef:
                 name: mongo-env
+            - secretRef:
+                name: mongo-secret
           volumeMounts:
             - name: dotnet-web-mongo-data
               mountPath: /data/db

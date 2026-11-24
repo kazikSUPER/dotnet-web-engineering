@@ -75,7 +75,7 @@ public sealed class TwoLevelCacheService(
             Size = 1,
             SlidingExpiration = TimeSpan.FromSeconds(30),
             AbsoluteExpirationRelativeToNow = ttl,
-        });
+        }.SetSize(1));
 
     private async Task<T?> TryReadL2Async<T>(string key, CancellationToken ct)
     {

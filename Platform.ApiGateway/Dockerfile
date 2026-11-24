@@ -30,4 +30,5 @@ RUN dotnet publish "Platform.ApiGateway.csproj" -c Release -o /app/publish /p:Us
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
+USER app
 ENTRYPOINT ["dotnet", "Platform.ApiGateway.dll"]

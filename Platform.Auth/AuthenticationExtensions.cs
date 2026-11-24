@@ -97,6 +97,13 @@ public static class AuthenticationExtensions
                 ctx.User.HasClaim(c => c.Type == "scope" && c.Value.Contains("products.read"))));
             options.AddPolicy("Scope.Payments.All", policy => policy.RequireAssertion(ctx =>
                 ctx.User.HasClaim(c => c.Type == "scope" && c.Value.Contains("payments.all"))));
+
+            options.AddPolicy("catalog.read", policy => policy.RequireAssertion(ctx =>
+                ctx.User.HasClaim(c => (c.Type == "scope" && (c.Value.Contains("catalog.read") || c.Value.Contains("products.read"))) || (c.Type == "permission" && c.Value == "products.read"))));
+            options.AddPolicy("orders.read", policy => policy.RequireAssertion(ctx =>
+                ctx.User.HasClaim(c => (c.Type == "scope" && c.Value.Contains("orders.read")) || (c.Type == "permission" && c.Value == "orders.read"))));
+            options.AddPolicy("reviews.read", policy => policy.RequireAssertion(ctx =>
+                ctx.User.HasClaim(c => (c.Type == "scope" && c.Value.Contains("reviews.read")) || (c.Type == "permission" && c.Value == "reviews.read"))));
         });
 
         return services;

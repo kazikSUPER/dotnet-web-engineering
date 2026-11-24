@@ -1,5 +1,7 @@
+using FluentValidation;
 using Orders.BLL.DTOs.Orders;
 using Orders.BLL.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Platform.Auth.Attributes;
 
@@ -7,7 +9,8 @@ namespace Orders.API.Controllers;
 
 [ApiController]
 [Route("api/orders")]
-public class OrdersController(IOrderService service) : ControllerBase
+[Authorize(Policy = "orders.read")]
+public class OrdersController(IOrderService service, IValidator<CreateOrderRequest> createValidator) : ControllerBase
 {
     [HttpGet("{id:int}")]
     [RequirePermission("orders.read")]
@@ -29,6 +32,15 @@ public class OrdersController(IOrderService service) : ControllerBase
     [RequirePermission("orders.write")]
     public async Task<ActionResult<OrderResponseDto>> Create(CreateOrderRequest request, CancellationToken ct)
     {
+        var validationResult = await createValidator.ValidateAsync(request, ct);
+        if (!validationResult.IsValid)
+        {
+            return ValidationProblem(new ValidationProblemDetails(
+                validationResult.Errors
+                    .GroupBy(e => e.PropertyName)
+                    .ToDictionary(g => g.Key, g => g.Select(e => e.ErrorMessage).ToArray())));
+        }
+
         var result = await service.CreateAsync(request, ct);
         return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
     }

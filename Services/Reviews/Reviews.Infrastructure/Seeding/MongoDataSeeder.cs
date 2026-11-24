@@ -30,17 +30,21 @@ public sealed class MongoDataSeeder(
         }
 
         var seed = BuildReviews();
-        var inserted = 0;
+        var toInsert = new List<Review>();
 
         foreach (var review in seed)
         {
-            if (await ExistsAsync(review.OrderId, review.ProductId, ct))
+            if (!await ExistsAsync(review.OrderId, review.ProductId, ct))
             {
-                continue;
+                toInsert.Add(review);
             }
+        }
 
-            await db.Reviews.InsertOneAsync(db.Session, review, ct);
-            inserted++;
+        var inserted = 0;
+        if (toInsert.Count > 0)
+        {
+            await db.Reviews.InsertManyAsync(db.Session, toInsert, cancellationToken: ct);
+            inserted = toInsert.Count;
         }
 
         foreach (var productId in seed.Select(x => x.ProductId).Distinct())

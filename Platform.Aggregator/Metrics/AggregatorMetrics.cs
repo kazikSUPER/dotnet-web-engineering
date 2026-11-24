@@ -15,9 +15,11 @@ public sealed class AggregatorMetrics
         _upstreamFailures = _meter.CreateCounter<long>("aggregate.upstream.failures", "count", "Count of upstream service failures");
     }
 
-    public void RecordDuration(double milliseconds, string result)
+    public void RecordDuration(double milliseconds, string status)
     {
-        _aggregateDuration.Record(milliseconds, new KeyValuePair<string, object?>("result", result));
+        _aggregateDuration.Record(milliseconds, 
+            new KeyValuePair<string, object?>("status", status),
+            new KeyValuePair<string, object?>("result", status));
     }
 
     public void RecordUpstreamFailure(string service)

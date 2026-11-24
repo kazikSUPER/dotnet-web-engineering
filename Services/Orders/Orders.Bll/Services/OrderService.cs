@@ -27,7 +27,7 @@ public class OrderService(
     public async Task<OrderResponseDto?> GetByIdAsync(int id, CancellationToken ct = default) => await cache.GetOrCreateAsync(
         CacheKeys.Order(id),
         async token => mapper.Map<OrderResponseDto?>(await uow.Orders.GetWithDetailsAsync(id, token)),
-        l1Ttl: TimeSpan.FromMinutes(2),
+        l1Ttl: TimeSpan.FromSeconds(30),
         l2Ttl: TimeSpan.FromMinutes(5),
         ct);
 
@@ -38,7 +38,7 @@ public class OrderService(
             var order = await uow.Orders.GetWithExplicitStatusHistoryAsync(id, token) ?? throw new NotFoundException(nameof(Order), id);
             return mapper.Map<List<OrderStatusHistoryDto>>(order.StatusHistory.OrderBy(x => x.ChangedAt).ToList());
         },
-        l1Ttl: TimeSpan.FromMinutes(2),
+        l1Ttl: TimeSpan.FromSeconds(30),
         l2Ttl: TimeSpan.FromMinutes(5),
         ct);
 
@@ -57,7 +57,8 @@ public class OrderService(
     {
         using var activity = OrdersActivitySources.Orders.StartActivity("order.create", ActivityKind.Internal);
         await createValidator.ValidateAndThrowAsync(request, ct);
-        if (await uow.Customers.GetByIdAsync(request.CustomerId, ct) is null) throw new NotFoundException(nameof(Customer), request.CustomerId);
+        using var tx = await uow.BeginTransactionAsync(ct);
+        var customer = await uow.Customers.GetByIdAsync(request.CustomerId, ct) ?? throw new NotFoundException(nameof(Customer), request.CustomerId);
         var order = new Order(request.CustomerId, $"ORD-{Guid.NewGuid():N}"[..16], request.Notes);
         foreach (var item in request.Items)
         {
@@ -65,6 +66,7 @@ public class OrderService(
         }
         await uow.Orders.AddAsync(order, ct);
         await uow.SaveChangesAsync(ct);
+        await uow.CommitTransactionAsync(ct);
         var created = await uow.Orders.GetWithDetailsAsync(order.Id, ct);
 
         // 6. Publish event ONLY after successful SaveChanges

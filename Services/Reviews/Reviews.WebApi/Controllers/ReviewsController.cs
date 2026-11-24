@@ -2,6 +2,7 @@ using Bakery.Reviews.Application.Commands;
 using Bakery.Reviews.Application.DTOs;
 using Bakery.Reviews.Application.Queries;
 using MediatR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Platform.Auth.Attributes;
 
@@ -9,6 +10,7 @@ namespace Bakery.Reviews.WebApi.Controllers;
 
 [ApiController]
 [Route("api/reviews")]
+[Authorize(Policy = "reviews.read")]
 public class ReviewsController(ISender sender) : ControllerBase
 {
     [HttpGet]

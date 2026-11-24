@@ -32,7 +32,18 @@ public sealed class ProductRenamedEventHandler(
         logger.LogInformation("Processing ProductRenamedEvent for ProductId {ProductId}: {OldName} -> {NewName}",
             @event.ProductId, @event.OldName, @event.NewName);
 
-        // Update denormalized product name across all reviews
+        // Direct UpdateMany by ProductId with timestamp protection against outdated messages
+        var filter = Builders<Review>.Filter.Eq(x => x.ProductId, @event.ProductId)
+            & Builders<Review>.Filter.Lt(x => x.UpdatedAt, @event.OccurredAt);
+
+        var update = Builders<Review>.Update
+            .Set(x => x.ProductName, @event.NewName.Trim())
+            .Set(x => x.UpdatedAt, @event.OccurredAt);
+
+        var updateResult = await db.Reviews.UpdateManyAsync(filter, update, cancellationToken: cancellationToken);
+        logger.LogInformation("Direct UpdateMany on Reviews modified {Count} documents for ProductId {ProductId}", updateResult.ModifiedCount, @event.ProductId);
+
+        // Also trigger command for domain notifications if needed
         await sender.Send(new RenameProductCommand(@event.ProductId, @event.NewName), cancellationToken);
 
         // Record processed event

@@ -42,3 +42,38 @@ public sealed class CustomerOrdersSpecification : ISpecification<Order>
     public int? Skip { get; }
     public int? Take { get; }
 }
+
+public sealed class OrdersByStatusAndDateSpecification : ISpecification<Order>
+{
+    public OrdersByStatusAndDateSpecification(string status, DateTime fromDate, DateTime toDate)
+    {
+        Criteria = x => !x.IsDeleted && x.Status == status && x.OrderDate >= fromDate && x.OrderDate <= toDate;
+        Includes.Add(x => x.Items);
+        Includes.Add(x => x.Customer!);
+        OrderByDescending = x => x.OrderDate;
+    }
+
+    public Expression<Func<Order, bool>>? Criteria { get; }
+    public List<Expression<Func<Order, object>>> Includes { get; } = [];
+    public Expression<Func<Order, object>>? OrderBy { get; }
+    public Expression<Func<Order, object>>? OrderByDescending { get; }
+    public int? Skip { get; }
+    public int? Take { get; }
+}
+
+public sealed class OrdersByAmountRangeSpecification : ISpecification<Order>
+{
+    public OrdersByAmountRangeSpecification(decimal minAmount, decimal maxAmount)
+    {
+        Criteria = x => !x.IsDeleted && x.TotalAmount >= minAmount && x.TotalAmount <= maxAmount;
+        Includes.Add(x => x.Items);
+        OrderByDescending = x => x.TotalAmount;
+    }
+
+    public Expression<Func<Order, bool>>? Criteria { get; }
+    public List<Expression<Func<Order, object>>> Includes { get; } = [];
+    public Expression<Func<Order, object>>? OrderBy { get; }
+    public Expression<Func<Order, object>>? OrderByDescending { get; }
+    public int? Skip { get; }
+    public int? Take { get; }
+}

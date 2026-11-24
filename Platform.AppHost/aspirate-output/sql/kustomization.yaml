@@ -9,7 +9,11 @@ configMapGenerator:
 - name: sql-env
   literals:
     - ACCEPT_EULA=Y
-    - MSSQL_SA_PASSWORD=SqlPassword123!
     - OTEL_EXPORTER_OTLP_ENDPOINT=http://aspire-dashboard:18889
     - OTEL_SERVICE_NAME=sql
+
+secretGenerator:
+- name: sql-secret
+  literals:
+    - MSSQL_SA_PASSWORD=SqlPassword123!
 

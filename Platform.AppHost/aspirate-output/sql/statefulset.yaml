@@ -25,6 +25,8 @@ spec:
           envFrom:
             - configMapRef:
                 name: sql-env
+            - secretRef:
+                name: sql-secret
           volumeMounts:
             - name: dotnet-web-sql-data
               mountPath: /var/opt/mssql

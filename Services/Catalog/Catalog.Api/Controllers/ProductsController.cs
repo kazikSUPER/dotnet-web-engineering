@@ -1,5 +1,8 @@
+using System.Diagnostics;
+using Catalog.Api.Metrics;
 using Catalog.BLL.DTOs.Products;
 using Catalog.BLL.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Platform.Auth.Attributes;
 
@@ -7,14 +10,25 @@ namespace Catalog.API.Controllers;
 
 [ApiController]
 [Route("api/products")]
-public class ProductsController(IProductService service) : ControllerBase
+[Authorize(Policy = "catalog.read")]
+public class ProductsController(IProductService service, CatalogMetrics metrics) : ControllerBase
 {
     [HttpGet("{id:int}")]
     [RequirePermission("products.read")]
     public async Task<ActionResult<ProductCardDto>> GetCard(int id, CancellationToken ct)
     {
-        var result = await service.GetCardAsync(id, ct);
-        return result is null ? NotFound() : Ok(result);
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            var result = await service.GetCardAsync(id, ct);
+            metrics.RecordDuration(sw.Elapsed.TotalMilliseconds, "get_card", "success");
+            return result is null ? NotFound() : Ok(result);
+        }
+        catch (Exception)
+        {
+            metrics.RecordDuration(sw.Elapsed.TotalMilliseconds, "get_card", "failure");
+            throw;
+        }
     }
 
     [HttpGet("category/{categoryId:int}")]
