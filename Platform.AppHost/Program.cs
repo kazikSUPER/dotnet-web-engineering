@@ -31,13 +31,9 @@ var keycloakDb = sql.AddDatabase("KeycloakDb");
 
 var keycloak = builder.AddContainer("keycloak", "quay.io/keycloak/keycloak", "26.0")
     .WithContainerName("dotnet-web-keycloak")
-    .WithVolume("dotnet-web-keycloak-data", "/opt/keycloak/data")
     .WithHttpEndpoint(port: 8080, targetPort: 8080, name: "http")
     .WithEnvironment("KEYCLOAK_ADMIN", "admin")
     .WithEnvironment("KEYCLOAK_ADMIN_PASSWORD", "admin")
-    .WithEnvironment("KC_DB", "mssql")
-    .WithReference(keycloakDb)
-    .WaitFor(keycloakDb)
     .WithArgs("start-dev");
 
 var auth = builder.AddProject<Projects.Auth_Api>("auth-api")
